@@ -222,7 +222,7 @@ def veri_cek(ticker, deneme=0):
         hata = str(e)
         if "rate" in hata.lower() or "429" in hata or "too many" in hata.lower():
             if deneme < RETRY:
-                time.sleep(5 * (deneme + 1))
+                time.sleep(10 * (deneme + 1))
                 return veri_cek(ticker, deneme + 1)
         return None
 
