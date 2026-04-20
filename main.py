@@ -1,26 +1,125 @@
 import os
 import time
+import random
 import requests
 import numpy as np
 import pandas as pd
-import yfinance as yf
 from datetime import datetime
+import io
 
 # ─────────────────────────────────────────────
 # AYARLAR
 # ─────────────────────────────────────────────
 TELEGRAM_TOKEN  = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID         = os.environ.get("CHAT_ID", "7116490869")
-MAX_BARS        = 2       # Fisher ve ALMA crossover max mum
-RSI_MAX         = 40.0    # RSI maksimum
-NW_ZONE         = 0.10    # NW Envelope alt %10
-BEKLEME         = 2.0     # Saniye
+MAX_BARS        = 2
+RSI_MAX         = 40.0
+NW_ZONE         = 0.10
+BEKLEME         = 3.0
 RETRY           = 3
-HACIM_GUN       = 3       # Son 3 günün ortalama hacmi
 
-BIST_HACIM_MIN   = 20_000_000   # 20 milyon TL
-ABD_HACIM_MIN    = 10_000_000   # 10 milyon dolar
-KRIPTO_HACIM_MIN = 10_000_000   # 10 milyon dolar
+BIST_HACIM_MIN   = 20_000_000
+ABD_HACIM_MIN    = 10_000_000
+KRIPTO_HACIM_MIN = 10_000_000
+
+# ─────────────────────────────────────────────
+# TARAYICI GİBİ GÖRÜNEN HEADER'LAR
+# ─────────────────────────────────────────────
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+]
+
+def get_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "max-age=0",
+    }
+
+# ─────────────────────────────────────────────
+# YAHOO FİNANCE'DEN VERİ ÇEK (requests ile)
+# ─────────────────────────────────────────────
+def yahoo_veri_cek(ticker, deneme=0):
+    try:
+        # Önce cookie al
+        session = requests.Session()
+        session.headers.update(get_headers())
+        
+        # Yahoo Finance cookie
+        cookie_url = "https://fc.yahoo.com"
+        try:
+            session.get(cookie_url, timeout=5)
+        except:
+            pass
+
+        crumb_url = "https://query1.finance.yahoo.com/v1/test/getcrumb"
+        try:
+            crumb_r = session.get(crumb_url, timeout=5)
+            crumb = crumb_r.text
+        except:
+            crumb = ""
+
+        # 1 saatlik veri çek (son 60 gün)
+        import time as t
+        end   = int(t.time())
+        start = end - 60 * 24 * 3600
+
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+            f"?period1={start}&period2={end}&interval=1h&crumb={crumb}"
+        )
+
+        r = session.get(url, timeout=15)
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+        chart = data.get("chart", {}).get("result", [])
+        if not chart:
+            return None
+
+        timestamps = chart[0]["timestamp"]
+        ohlcv      = chart[0]["indicators"]["quote"][0]
+
+        df = pd.DataFrame({
+            "Open":   ohlcv.get("open", []),
+            "High":   ohlcv.get("high", []),
+            "Low":    ohlcv.get("low", []),
+            "Close":  ohlcv.get("close", []),
+            "Volume": ohlcv.get("volume", []),
+        }, index=pd.to_datetime(timestamps, unit="s", utc=True))
+
+        df = df.dropna()
+        if len(df) < 50:
+            return None
+
+        # 4 saatlik muma dönüştür
+        df = df.resample("4h").agg({
+            "Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"
+        }).dropna()
+
+        if len(df) < 50:
+            return None
+
+        return df
+
+    except Exception as e:
+        hata = str(e)
+        if deneme < RETRY:
+            time.sleep(10 * (deneme + 1))
+            return yahoo_veri_cek(ticker, deneme + 1)
+        return None
 
 # ─────────────────────────────────────────────
 # BIST
@@ -68,11 +167,7 @@ BIST = [
     "ZOREN.IS",
 ]
 
-# ─────────────────────────────────────────────
-# NYSE + NASDAQ + DOW + S&P500
-# ─────────────────────────────────────────────
 ABD = [
-    # Mega cap / S&P500 core
     "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","TSLA","BRK-B","JPM",
     "V","UNH","XOM","LLY","JNJ","MA","AVGO","PG","HD","MRK",
     "COST","ABBV","CVX","PEP","KO","ADBE","WMT","BAC","CRM","MCD",
@@ -84,40 +179,25 @@ ABD = [
     "APD","EMR","WM","FCX","HCA","NSC","ADP","ECL","F","GM",
     "ELV","HUM","FTNT","SNPS","CDNS","PAYX","MCHP","KLAC","AMAT","NXPI",
     "MMM","AXP","BA","DIS","DOW","NKE","TRV","VZ","WBA","MU",
-    # NASDAQ teknoloji
-    "ABNB","ADSK","ALGN","ANSS","ATVI","BIDU","BMRN","CMCSA","CPRT","CSGP",
-    "CTAS","CTSH","DDOG","DLTR","DOCU","DXCM","EA","EBAY","ENPH","FAST",
-    "FISV","IDXX","ILMN","INTC","JD","KDP","LULU","MAR","MELI","MNST",
-    "MRNA","MRVL","MTCH","NFLX","NVAX","OKTA","PANW","PCAR","PDD","PYPL",
-    "RIVN","ROST","SBUX","SPLK","SWKS","TEAM","TMUS","TTWO","VRSK","VRSN",
-    "WDAY","WDC","ZM","ZS","HUBS","SNOW","PLTR","RBLX","COIN","AFRM",
-    "UPST","SOFI","HOOD","LCID","DKNG","FUTU","GRAB","SGEN","BIIB","REGN",
-    # NYSE büyük şirketler
-    "T","VZ","CMCSA","CHTR","NFLX","DIS","PARA","WBD","FOX","FOXA",
-    "LMT","RTX","NOC","GD","BA","TDG","HII","L3T","LDOS","SAIC",
-    "CVS","WBA","MCK","ABC","CAH","HCA","THC","UHS","CNC","MOH",
-    "XOM","CVX","COP","EOG","PXD","DVN","FANG","MRO","APA","OXY",
-    "NEE","DUK","SO","D","EXC","SRE","AEP","XEL","WEC","ES",
-    "JPM","BAC","WFC","C","GS","MS","BK","STT","USB","PNC",
-    "CB","AON","MMC","AIG","MET","PRU","AFL","ALL","TRV","HIG",
-    "AMT","PLD","EQIX","CCI","SBAC","DLR","PSA","EXR","AVB","EQR",
-    "SPG","O","NNN","WELL","VTR","PEAK","ARE","BXP","SLG","KIM",
-    "DE","CAT","CMI","PCAR","ROK","EMR","HON","GE","ETN","ITW",
-    "NUE","STLD","CLF","X","AA","FCX","NEM","AEM","GOLD","KGC",
-    "LIN","APD","ECL","PPG","SHW","RPM","IFF","ALB","FMC","CE",
-    "UNP","CSX","NSC","UPS","FDX","JBHT","CHRW","XPO","ODFL","SAIA",
-    "AMZN","WMT","TGT","COST","HD","LOW","BBY","DG","DLTR","FIVE",
-    "MCD","SBUX","YUM","QSR","DPZ","CMG","DENN","JACK","TXRH","WING",
-    "PFE","JNJ","ABBV","MRK","BMY","AMGN","GILD","REGN","VRTX","BIIB",
-    "AAPL","MSFT","GOOGL","META","NVDA","AMD","INTC","QCOM","AVGO","TXN",
-    "V","MA","PYPL","SQ","AFRM","SOFI","NU","STNE","GPN","FIS",
-    "CRM","ORCL","SAP","NOW","WDAY","ADBE","INTU","CTSH","ACN","IBM",
-    "TSLA","GM","F","RIVN","LCID","NIO","LI","XPEV","FSR","RIDE",
+    "ABNB","ADSK","ALGN","ANSS","CMCSA","CPRT","CSGP","CTAS","CTSH","DDOG",
+    "DLTR","DOCU","DXCM","EA","EBAY","ENPH","FAST","FISV","IDXX","ILMN",
+    "INTC","JD","KDP","LULU","MAR","MELI","MNST","MRNA","MRVL","MTCH",
+    "NFLX","NVAX","OKTA","PANW","PCAR","PDD","PYPL","RIVN","ROST","SBUX",
+    "SPLK","SWKS","TEAM","TMUS","TTWO","VRSK","VRSN","WDAY","WDC","ZM",
+    "ZS","HUBS","SNOW","PLTR","RBLX","COIN","AFRM","UPST","SOFI","HOOD",
+    "LCID","DKNG","FUTU","GRAB","T","CHTR","PARA","WBD","FOX","FOXA",
+    "LMT","GD","TDG","CVS","MCK","ABC","CAH","THC","UHS","CNC",
+    "MOH","COP","EOG","PXD","DVN","FANG","MRO","APA","OXY","D",
+    "EXC","SRE","AEP","XEL","WEC","ES","WFC","C","MS","BK",
+    "STT","USB","PNC","CB","AIG","MET","PRU","AFL","ALL","HIG",
+    "CCI","SBAC","DLR","PSA","EXR","AVB","EQR","SPG","O","NNN",
+    "WELL","VTR","ARE","BXP","DE","CMI","ROK","NUE","STLD","CLF",
+    "NEM","AEM","GOLD","KGC","UNP","CSX","FDX","JBHT","CHRW","XPO",
+    "ODFL","TGT","BBY","DG","FIVE","YUM","QSR","DPZ","CMG","TXRH",
+    "PFE","BMY","AMD","SQ","NU","GPN","FIS","NOW","SAP","ACN",
+    "NIO","LI","XPEV","INJ","CELH","DXCM","PODD","TNDM","HOLX","AZEK",
 ]
 
-# ─────────────────────────────────────────────
-# KRİPTO
-# ─────────────────────────────────────────────
 KRIPTO = [
     "BTC-USD","ETH-USD","BNB-USD","XRP-USD","SOL-USD","ADA-USD","DOGE-USD",
     "TRX-USD","DOT-USD","MATIC-USD","LTC-USD","SHIB-USD","AVAX-USD","UNI-USD",
@@ -129,8 +209,8 @@ KRIPTO = [
     "RUNE-USD","DYDX-USD","IMX-USD","GALA-USD","LDO-USD","APE-USD","OP-USD",
     "ARB-USD","SUI-USD","SEI-USD","TIA-USD","PYTH-USD","WIF-USD","BONK-USD",
     "PEPE-USD","FLOKI-USD","ORDI-USD","LUNC-USD","RAY-USD","DGB-USD","RVN-USD",
-    "MASK-USD","ROSE-USD","WBTC-USD","SCRT-USD","INJ-USD","FET-USD","RNDR-USD",
-    "OCEAN-USD","AGI-USD","WLD-USD","CFG-USD","HOOK-USD","HIGH-USD","ACH-USD",
+    "MASK-USD","ROSE-USD","WBTC-USD","INJ-USD","FET-USD","RNDR-USD","OCEAN-USD",
+    "WLD-USD","HIGH-USD","ACH-USD",
 ]
 
 TUM_HISSELER = list(dict.fromkeys(BIST + ABD + KRIPTO))
@@ -202,39 +282,12 @@ def crossover_bars_ago(a, b, max_bars=MAX_BARS):
     return None
 
 # ─────────────────────────────────────────────
-# VERİ ÇEK
-# ─────────────────────────────────────────────
-def veri_cek(ticker, deneme=0):
-    try:
-        df = yf.download(ticker, period="60d", interval="1h", progress=False, auto_adjust=True)
-        if df is None or len(df) < 50:
-            return None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        df.columns = [str(c).capitalize() for c in df.columns]
-        df = df.resample("4h").agg({
-            "Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"
-        }).dropna()
-        if len(df) < 50:
-            return None
-        return df
-    except Exception as e:
-        hata = str(e)
-        if "rate" in hata.lower() or "429" in hata or "too many" in hata.lower():
-            if deneme < RETRY:
-                time.sleep(10 * (deneme + 1))
-                return veri_cek(ticker, deneme + 1)
-        return None
-
-# ─────────────────────────────────────────────
 # HACİM FİLTRESİ
 # ─────────────────────────────────────────────
 def hacim_gecti(ticker, df):
     try:
-        # Son 3 günün ortalama hacmi (4h mumlardan hesapla)
-        son3gun = df.tail(18)  # 3 gün × 6 mum = 18 mum
+        son3gun  = df.tail(18)
         ort_hacim = son3gun["Volume"].mean()
-
         if ticker.endswith(".IS"):
             return ort_hacim >= BIST_HACIM_MIN
         elif ticker.endswith("-USD"):
@@ -249,11 +302,10 @@ def hacim_gecti(ticker, df):
 # ─────────────────────────────────────────────
 def hisse_tara(ticker):
     try:
-        df = veri_cek(ticker)
+        df = yahoo_veri_cek(ticker)
         if df is None:
             return False
 
-        # Hacim filtresi
         if not hacim_gecti(ticker, df):
             return False
 
@@ -261,27 +313,23 @@ def hisse_tara(ticker):
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
-        # 1) FISHER
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2)
         if fisher_bars is None or fish1[-1 - fisher_bars] >= 0:
             return False
 
-        # 2) ALMA 4/9
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9)
         if alma_bars is None:
             return False
 
-        # 3) RSI
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma)
         if rsi_bars is None or rsi_vals[-1] > RSI_MAX:
             return False
 
-        # 4) NW ENVELOPE alt %10
         mid, lower, upper = nw_envelope(close, h=8.0, mult=3.0)
         zone = lower + (mid - lower) * NW_ZONE
         if close[-1] > zone or close[-1] < lower:
@@ -307,7 +355,7 @@ def tara():
             bulunanlar.append(ticker)
         else:
             print("✗")
-        time.sleep(BEKLEME)
+        time.sleep(BEKLEME + random.uniform(0, 1))  # rastgele bekleme
 
     if bulunanlar:
         mesaj = "🟢 <b>AL Sinyali!</b>\n\n"
