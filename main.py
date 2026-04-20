@@ -122,14 +122,20 @@ def hisse_tara(ticker):
         if df is None or len(df) < 50:
             return False
 
+        # Çoklu seviye sütunları düzelt
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        df.columns = [c.capitalize() for c in df.columns]
+
         # 4 saatlik mum oluştur
         df = df.resample("4h").agg({"Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"}).dropna()
         if len(df) < 50:
             return False
 
-        close = df["Close"].values
-        high  = df["High"].values
-        low   = df["Low"].values
+        close = df["Close"].values.astype(float)
+        high  = df["High"].values.astype(float)
+        low   = df["Low"].values.astype(float)
 
         # 1) FISHER
         fish1, fish2 = fisher_transform(high, low, 9)
