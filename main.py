@@ -5,19 +5,23 @@ import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from io import StringIO
 
 # ─────────────────────────────────────────────
 # AYARLAR
 # ─────────────────────────────────────────────
-TELEGRAM_TOKEN  = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID         = os.environ.get("CHAT_ID", "7116490869")
-MAX_BARS        = 2
-RSI_MAX         = 40.0
-NW_ZONE         = 0.10
-RETRY           = 3
-BEKLEME_MIN     = 3.0
-BEKLEME_MAX     = 6.0
-BIST_HACIM_MIN  = 20_000_000
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID          = os.environ.get("CHAT_ID", "7116490869")
+GITHUB_USER      = os.environ.get("GITHUB_USER", "Ulas158")
+MAX_BARS         = 2
+RSI_MAX          = 40.0
+NW_ZONE          = 0.10
+RETRY            = 3
+BEKLEME_MIN      = 3.0
+BEKLEME_MAX      = 6.0
+BIST_HACIM_MIN   = 20_000_000
+ABD_HACIM_MIN    = 10_000_000
+KRIPTO_HACIM_MIN = 10_000_000
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -30,14 +34,14 @@ def get_headers():
     return {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
         "Cache-Control": "max-age=0",
     }
 
 # ─────────────────────────────────────────────
-# BIST LİSTESİ — isyatirimhisse + yedek
+# BIST — GitHub bist.txt
 # ─────────────────────────────────────────────
 BIST_YEDEK = [
     "AEFES","AGESA","AGHOL","AHGAZ","AKENR","AKBNK","AKFEN","AKGRT","AKSA","AKSEN",
@@ -74,12 +78,9 @@ BIST_YEDEK = [
 ]
 
 def bist_listesi_cek():
-    """GitHub'daki bist.txt dosyasından güncel BIST sembol listesini çek."""
     try:
         print("GitHub'dan bist.txt çekiliyor...")
-        # Kendi GitHub repondan çek — raw link
-        github_user = os.environ.get("GITHUB_USER", "Ulas158")
-        url = f"https://raw.githubusercontent.com/{github_user}/Sinyal-botu/main/bist.txt"
+        url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/bist.txt"
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
             semboller = [
@@ -89,14 +90,112 @@ def bist_listesi_cek():
             ]
             semboller = list(dict.fromkeys(semboller))
             if len(semboller) >= 50:
-                print(f"GitHub bist.txt: {len(semboller)} hisse bulundu")
+                print(f"BIST: {len(semboller)} hisse")
                 return semboller
         raise Exception(f"HTTP {r.status_code}")
     except Exception as e:
-        print(f"GitHub hatası: {e}")
-        print("Yedek liste kullanılıyor...")
+        print(f"bist.txt hatası: {e} — yedek liste")
         return [s + ".IS" for s in BIST_YEDEK]
 
+# ─────────────────────────────────────────────
+# ABD — S&P500 + NYSE top 2000 + NASDAQ top 500
+# ─────────────────────────────────────────────
+def abd_listesi_cek():
+    semboller = []
+
+    # 1) S&P 500
+    try:
+        print("S&P 500 çekiliyor...")
+        url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
+        r = requests.get(url, headers=get_headers(), timeout=15)
+        df = pd.read_csv(StringIO(r.text))
+        sp500 = [s.replace(".", "-") for s in df["Symbol"].dropna().tolist()]
+        semboller.extend(sp500)
+        print(f"S&P 500: {len(sp500)} hisse")
+    except Exception as e:
+        print(f"S&P 500 hatası: {e}")
+
+    # 2) NYSE top 2000
+    try:
+        print("NYSE çekiliyor...")
+        url = "https://raw.githubusercontent.com/datasets/nyse-listings/master/data/nyse-listed.csv"
+        r = requests.get(url, headers=get_headers(), timeout=15)
+        df = pd.read_csv(StringIO(r.text))
+        col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
+        if col:
+            nyse = df[col[0]].dropna().tolist()[:2000]
+            nyse = [str(s).strip() for s in nyse if str(s).strip() and "." not in str(s) and "$" not in str(s)]
+            semboller.extend(nyse)
+            print(f"NYSE: {len(nyse)} hisse")
+    except Exception as e:
+        print(f"NYSE hatası: {e}")
+
+    # 3) NASDAQ top 500
+    try:
+        print("NASDAQ top 500 çekiliyor...")
+        url = "https://raw.githubusercontent.com/Ate329/top-us-stock-tickers/main/tickers/all.csv"
+        r = requests.get(url, headers=get_headers(), timeout=15)
+        df = pd.read_csv(StringIO(r.text))
+        col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
+        if col:
+            nasdaq = df[col[0]].dropna().tolist()[:500]
+            nasdaq = [str(s).strip() for s in nasdaq if str(s).strip()]
+            semboller.extend(nasdaq)
+            print(f"NASDAQ top 500: {len(nasdaq)} hisse")
+    except Exception as e:
+        print(f"NASDAQ hatası: {e}")
+
+    semboller = list(dict.fromkeys([
+        s for s in semboller
+        if s and len(s) <= 6 and s.replace("-", "").isalpha()
+    ]))
+    print(f"ABD toplam: {len(semboller)} hisse")
+    return semboller
+
+# ─────────────────────────────────────────────
+# KRİPTO — CoinGecko top 400
+# ─────────────────────────────────────────────
+KRIPTO_YEDEK = [
+    "BTC-USD","ETH-USD","BNB-USD","XRP-USD","SOL-USD","ADA-USD","DOGE-USD",
+    "TRX-USD","DOT-USD","MATIC-USD","LTC-USD","SHIB-USD","AVAX-USD","UNI-USD",
+    "LINK-USD","ATOM-USD","XLM-USD","ETC-USD","BCH-USD","APT-USD","FIL-USD",
+    "NEAR-USD","ICP-USD","VET-USD","HBAR-USD","QNT-USD","ALGO-USD","GRT-USD",
+    "EGLD-USD","AAVE-USD","XMR-USD","EOS-USD","SAND-USD","MANA-USD","AXS-USD",
+    "THETA-USD","FTM-USD","FLOW-USD","STX-USD","XTZ-USD","DASH-USD","COMP-USD",
+    "YFI-USD","SNX-USD","SUSHI-USD","1INCH-USD","CAKE-USD","OMG-USD","LRC-USD",
+    "RUNE-USD","DYDX-USD","IMX-USD","GALA-USD","LDO-USD","APE-USD","OP-USD",
+    "ARB-USD","SUI-USD","SEI-USD","TIA-USD","PYTH-USD","WIF-USD","BONK-USD",
+    "PEPE-USD","FLOKI-USD","ORDI-USD","LUNC-USD","RAY-USD","INJ-USD","FET-USD",
+    "RNDR-USD","OCEAN-USD","WLD-USD","JASMY-USD","ROSE-USD","MASK-USD",
+]
+
+def kripto_listesi_cek():
+    try:
+        print("CoinGecko'dan top 400 kripto çekiliyor...")
+        semboller = []
+        # CoinGecko 250 limit/sayfa — 2 sayfa çekeriz
+        for sayfa in [1, 2]:
+            url = (
+                f"https://api.coingecko.com/api/v3/coins/markets"
+                f"?vs_currency=usd&order=market_cap_desc&per_page=200&page={sayfa}"
+            )
+            r = requests.get(url, headers=get_headers(), timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                for coin in data:
+                    sembol = coin.get("symbol", "").upper()
+                    if sembol and len(sembol) <= 10:
+                        semboller.append(sembol + "-USD")
+            time.sleep(2)  # CoinGecko rate limit
+
+        semboller = list(dict.fromkeys(semboller))
+        if len(semboller) >= 50:
+            print(f"Kripto: {len(semboller)} coin")
+            return semboller
+        raise Exception(f"Yeterli coin yok: {len(semboller)}")
+    except Exception as e:
+        print(f"CoinGecko hatası: {e} — yedek liste")
+        return KRIPTO_YEDEK
 
 # ─────────────────────────────────────────────
 # TELEGRAM
@@ -180,11 +279,16 @@ def yahoo_veri_cek(ticker, deneme=0):
 # ─────────────────────────────────────────────
 # HACİM FİLTRESİ
 # ─────────────────────────────────────────────
-def hacim_gecti(df):
+def hacim_gecti(ticker, df):
     try:
         son3gun   = df.tail(18)
         ort_hacim = son3gun["Volume"].mean()
-        return ort_hacim >= BIST_HACIM_MIN
+        if ticker.endswith(".IS"):
+            return ort_hacim >= BIST_HACIM_MIN
+        elif ticker.endswith("-USD"):
+            return ort_hacim >= KRIPTO_HACIM_MIN
+        else:
+            return ort_hacim >= ABD_HACIM_MIN
     except:
         return False
 
@@ -255,7 +359,7 @@ def hisse_tara(ticker):
         df = yahoo_veri_cek(ticker)
         if df is None:
             return False
-        if not hacim_gecti(df):
+        if not hacim_gecti(ticker, df):
             return False
 
         close = df["Close"].values.astype(float)
@@ -294,55 +398,86 @@ def hisse_tara(ticker):
 # ANA TARAMA
 # ─────────────────────────────────────────────
 def tara(hisse_listesi):
-    print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(hisse_listesi)} hisse")
-    bulunanlar = []
+    print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(hisse_listesi)} sembol")
+    bulunanlar_bist   = []
+    bulunanlar_abd    = []
+    bulunanlar_kripto = []
 
     for i, ticker in enumerate(hisse_listesi):
         print(f"  [{i+1}/{len(hisse_listesi)}] {ticker}", end=" ", flush=True)
         if hisse_tara(ticker):
             print("✓ SİNYAL")
-            bulunanlar.append(ticker)
+            if ticker.endswith(".IS"):
+                bulunanlar_bist.append(ticker.replace(".IS",""))
+            elif ticker.endswith("-USD"):
+                bulunanlar_kripto.append(ticker.replace("-USD",""))
+            else:
+                bulunanlar_abd.append(ticker)
         else:
             print("✗")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
-    if bulunanlar:
-        mesaj = "🟢 <b>BIST AL Sinyali!</b>\n\n"
-        mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-        mesaj += f"📊 Zaman Dilimi: 4 Saatlik\n\n"
-        mesaj += "<b>Hisseler:</b>\n"
-        for h in bulunanlar:
-            mesaj += f"  • {h.replace('.IS', '')}\n"
-        mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW Envelope %10\n"
-        mesaj += f"📋 Hacim: ≥20M TL (3 gün ort.)"
+    if bulunanlar_bist:
+        mesaj = "🇹🇷 <b>BIST AL Sinyali!</b>\n\n"
+        mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+        for h in bulunanlar_bist:
+            mesaj += f"  • {h}\n"
+        mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW %10"
         telegram_gonder(mesaj)
-        print(f"\n✅ Telegram gönderildi: {bulunanlar}")
-    else:
+
+    if bulunanlar_abd:
+        mesaj = "🇺🇸 <b>ABD AL Sinyali!</b>\n\n"
+        mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+        for h in bulunanlar_abd:
+            mesaj += f"  • {h}\n"
+        mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW %10"
+        telegram_gonder(mesaj)
+
+    if bulunanlar_kripto:
+        mesaj = "🪙 <b>Kripto AL Sinyali!</b>\n\n"
+        mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+        for h in bulunanlar_kripto:
+            mesaj += f"  • {h}\n"
+        mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW %10"
+        telegram_gonder(mesaj)
+
+    if not any([bulunanlar_bist, bulunanlar_abd, bulunanlar_kripto]):
         print("\nSinyal bulunamadı.")
 
 # ─────────────────────────────────────────────
 # BAŞLAT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    bist_listesi = bist_listesi_cek()
-    toplam   = len(bist_listesi)
-    sure_dk  = int(toplam * (BEKLEME_MIN + BEKLEME_MAX) / 2 / 60)
+    bist_listesi   = bist_listesi_cek()
+    abd_listesi    = abd_listesi_cek()
+    kripto_listesi = kripto_listesi_cek()
+    tum_liste      = list(dict.fromkeys(bist_listesi + abd_listesi + kripto_listesi))
+
+    toplam  = len(tum_liste)
+    sure_dk = int(toplam * (BEKLEME_MIN + BEKLEME_MAX) / 2 / 60)
 
     telegram_gonder(
-        f"🤖 <b>BIST Sinyal Botu Başlatıldı!</b>\n\n"
-        f"📋 Kaynak: İş Yatırım (isyatirimhisse)\n"
-        f"🔢 Toplam hisse: {toplam}\n"
+        f"🤖 <b>Kombine Sinyal Botu Başlatıldı!</b>\n\n"
+        f"🇹🇷 BIST: {len(bist_listesi)} hisse\n"
+        f"🇺🇸 ABD (S&P500+NYSE+NASDAQ): {len(abd_listesi)} hisse\n"
+        f"🪙 Kripto (CoinGecko top 400): {len(kripto_listesi)} coin\n"
+        f"🔢 Toplam: {toplam} sembol\n"
         f"⏱ Tarama süresi: ~{sure_dk} dakika\n\n"
         f"<b>Filtreler:</b>\n"
-        f"• Hacim ≥ 20M TL (son 3 gün)\n"
+        f"• BIST Hacim ≥ 20M TL\n"
+        f"• ABD Hacim ≥ 10M USD\n"
+        f"• Kripto Hacim ≥ 10M USD\n"
         f"• Fisher crossover (2 mum, 0 altı)\n"
         f"• ALMA 4/9 crossover (2 mum)\n"
         f"• RSI ≤ 40\n"
         f"• NW Envelope alt %10\n\n"
-        f"📅 Liste her turda güncellenir (yeni hisseler dahil)"
+        f"📅 Listeler her turda otomatik güncellenir"
     )
 
     while True:
-        bist_listesi = bist_listesi_cek()
-        tara(bist_listesi)
+        bist_listesi   = bist_listesi_cek()
+        abd_listesi    = abd_listesi_cek()
+        kripto_listesi = kripto_listesi_cek()
+        tum_liste      = list(dict.fromkeys(bist_listesi + abd_listesi + kripto_listesi))
+        tara(tum_liste)
         print("\nYeni tur başlıyor...\n")
