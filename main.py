@@ -171,30 +171,35 @@ KRIPTO_YEDEK = [
 
 def kripto_listesi_cek():
     try:
-        print("CoinGecko'dan top 400 kripto çekiliyor...")
+        print("Binance API'den top 400 kripto çekiliyor...")
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        r = requests.get(url, timeout=15)
+        if r.status_code != 200:
+            raise Exception(f"HTTP {r.status_code}")
+
+        data = r.json()
+
+        # Sadece USDT çiftlerini al, hacme göre sırala
+        usdt_coins = [
+            d for d in data
+            if d["symbol"].endswith("USDT") and float(d["quoteVolume"]) > 0
+        ]
+        usdt_coins.sort(key=lambda x: float(x["quoteVolume"]), reverse=True)
+
+        # Top 400 — sembolü Yahoo Finance formatına çevir (BTCUSDT → BTC-USD)
         semboller = []
-        # CoinGecko 250 limit/sayfa — 2 sayfa çekeriz
-        for sayfa in [1, 2]:
-            url = (
-                f"https://api.coingecko.com/api/v3/coins/markets"
-                f"?vs_currency=usd&order=market_cap_desc&per_page=200&page={sayfa}"
-            )
-            r = requests.get(url, headers=get_headers(), timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                for coin in data:
-                    sembol = coin.get("symbol", "").upper()
-                    if sembol and len(sembol) <= 10:
-                        semboller.append(sembol + "-USD")
-            time.sleep(2)  # CoinGecko rate limit
+        for d in usdt_coins[:400]:
+            sembol = d["symbol"].replace("USDT", "")
+            if sembol and len(sembol) <= 10:
+                semboller.append(sembol + "-USD")
 
         semboller = list(dict.fromkeys(semboller))
         if len(semboller) >= 50:
-            print(f"Kripto: {len(semboller)} coin")
+            print(f"Kripto (Binance): {len(semboller)} coin")
             return semboller
         raise Exception(f"Yeterli coin yok: {len(semboller)}")
     except Exception as e:
-        print(f"CoinGecko hatası: {e} — yedek liste")
+        print(f"Binance hatası: {e} — yedek liste")
         return KRIPTO_YEDEK
 
 # ─────────────────────────────────────────────
