@@ -20,7 +20,6 @@ RETRY            = 3
 BEKLEME_MIN      = 3.0
 BEKLEME_MAX      = 6.0
 BIST_HACIM_MIN   = 20_000_000
-ABD_HACIM_MIN    = 10_000_000
 KRIPTO_HACIM_MIN = 10_000_000
 
 USER_AGENTS = [
@@ -98,75 +97,20 @@ def bist_listesi_cek():
         return [s + ".IS" for s in BIST_YEDEK]
 
 # ─────────────────────────────────────────────
-# ABD — S&P500 + NYSE top 2000 + NASDAQ top 500
-# ─────────────────────────────────────────────
-def abd_listesi_cek():
-    semboller = []
-
-    # 1) S&P 500
-    try:
-        print("S&P 500 çekiliyor...")
-        url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
-        r = requests.get(url, headers=get_headers(), timeout=15)
-        df = pd.read_csv(StringIO(r.text))
-        sp500 = [s.replace(".", "-") for s in df["Symbol"].dropna().tolist()]
-        semboller.extend(sp500)
-        print(f"S&P 500: {len(sp500)} hisse")
-    except Exception as e:
-        print(f"S&P 500 hatası: {e}")
-
-    # 2) NYSE top 2000
-    try:
-        print("NYSE çekiliyor...")
-        url = "https://raw.githubusercontent.com/datasets/nyse-listings/master/data/nyse-listed.csv"
-        r = requests.get(url, headers=get_headers(), timeout=15)
-        df = pd.read_csv(StringIO(r.text))
-        col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
-        if col:
-            nyse = df[col[0]].dropna().tolist()[:2000]
-            nyse = [str(s).strip() for s in nyse if str(s).strip() and "." not in str(s) and "$" not in str(s)]
-            semboller.extend(nyse)
-            print(f"NYSE: {len(nyse)} hisse")
-    except Exception as e:
-        print(f"NYSE hatası: {e}")
-
-    # 3) NASDAQ top 500
-    try:
-        print("NASDAQ top 500 çekiliyor...")
-        url = "https://raw.githubusercontent.com/Ate329/top-us-stock-tickers/main/tickers/all.csv"
-        r = requests.get(url, headers=get_headers(), timeout=15)
-        df = pd.read_csv(StringIO(r.text))
-        col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
-        if col:
-            nasdaq = df[col[0]].dropna().tolist()[:500]
-            nasdaq = [str(s).strip() for s in nasdaq if str(s).strip()]
-            semboller.extend(nasdaq)
-            print(f"NASDAQ top 500: {len(nasdaq)} hisse")
-    except Exception as e:
-        print(f"NASDAQ hatası: {e}")
-
-    semboller = list(dict.fromkeys([
-        s for s in semboller
-        if s and len(s) <= 6 and s.replace("-", "").isalpha()
-    ]))
-    print(f"ABD toplam: {len(semboller)} hisse")
-    return semboller
-
-# ─────────────────────────────────────────────
-# KRİPTO — CoinGecko top 400
+# KRİPTO — GitHub kripto.txt
 # ─────────────────────────────────────────────
 KRIPTO_YEDEK = [
     "BTC-USD","ETH-USD","BNB-USD","XRP-USD","SOL-USD","ADA-USD","DOGE-USD",
-    "TRX-USD","DOT-USD","MATIC-USD","LTC-USD","SHIB-USD","AVAX-USD","UNI-USD",
-    "LINK-USD","ATOM-USD","XLM-USD","ETC-USD","BCH-USD","APT-USD","FIL-USD",
-    "NEAR-USD","ICP-USD","VET-USD","HBAR-USD","QNT-USD","ALGO-USD","GRT-USD",
-    "EGLD-USD","AAVE-USD","XMR-USD","EOS-USD","SAND-USD","MANA-USD","AXS-USD",
-    "THETA-USD","FTM-USD","FLOW-USD","STX-USD","XTZ-USD","DASH-USD","COMP-USD",
-    "YFI-USD","SNX-USD","SUSHI-USD","1INCH-USD","CAKE-USD","OMG-USD","LRC-USD",
-    "RUNE-USD","DYDX-USD","IMX-USD","GALA-USD","LDO-USD","APE-USD","OP-USD",
-    "ARB-USD","SUI-USD","SEI-USD","TIA-USD","PYTH-USD","WIF-USD","BONK-USD",
-    "PEPE-USD","FLOKI-USD","ORDI-USD","LUNC-USD","RAY-USD","INJ-USD","FET-USD",
-    "RNDR-USD","OCEAN-USD","WLD-USD","JASMY-USD","ROSE-USD","MASK-USD",
+    "TRX-USD","TON-USD","LINK-USD","AVAX-USD","SHIB-USD","DOT-USD","LTC-USD",
+    "BCH-USD","NEAR-USD","UNI-USD","APT-USD","ICP-USD","ETC-USD","XLM-USD",
+    "FET-USD","RNDR-USD","VET-USD","ATOM-USD","IMX-USD","AAVE-USD","OP-USD",
+    "ARB-USD","MKR-USD","HBAR-USD","FIL-USD","GRT-USD","INJ-USD","SAND-USD",
+    "MANA-USD","THETA-USD","AXS-USD","EGLD-USD","EOS-USD","FLOW-USD","ALGO-USD",
+    "XMR-USD","RUNE-USD","DASH-USD","ZEC-USD","COMP-USD","SNX-USD","YFI-USD",
+    "SUSHI-USD","CRV-USD","1INCH-USD","CAKE-USD","LRC-USD","BAT-USD","ENJ-USD",
+    "CHZ-USD","DYDX-USD","STX-USD","XTZ-USD","ROSE-USD","MASK-USD","OCEAN-USD",
+    "WLD-USD","JASMY-USD","LDO-USD","APE-USD","SUI-USD","SEI-USD","TIA-USD",
+    "PYTH-USD","WIF-USD","BONK-USD","PEPE-USD","FLOKI-USD","ORDI-USD","LUNC-USD",
 ]
 
 def kripto_listesi_cek():
@@ -279,8 +223,7 @@ def hacim_gecti(ticker, df):
             return ort_hacim >= BIST_HACIM_MIN
         elif ticker.endswith("-USD"):
             return ort_hacim >= KRIPTO_HACIM_MIN
-        else:
-            return ort_hacim >= ABD_HACIM_MIN
+        return False
     except:
         return False
 
@@ -392,7 +335,6 @@ def hisse_tara(ticker):
 def tara(hisse_listesi):
     print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(hisse_listesi)} sembol")
     bulunanlar_bist   = []
-    bulunanlar_abd    = []
     bulunanlar_kripto = []
 
     for i, ticker in enumerate(hisse_listesi):
@@ -403,8 +345,6 @@ def tara(hisse_listesi):
                 bulunanlar_bist.append(ticker.replace(".IS",""))
             elif ticker.endswith("-USD"):
                 bulunanlar_kripto.append(ticker.replace("-USD",""))
-            else:
-                bulunanlar_abd.append(ticker)
         else:
             print("✗")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
@@ -417,14 +357,6 @@ def tara(hisse_listesi):
         mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW %10"
         telegram_gonder(mesaj)
 
-    if bulunanlar_abd:
-        mesaj = "🇺🇸 <b>ABD AL Sinyali!</b>\n\n"
-        mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-        for h in bulunanlar_abd:
-            mesaj += f"  • {h}\n"
-        mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW %10"
-        telegram_gonder(mesaj)
-
     if bulunanlar_kripto:
         mesaj = "🪙 <b>Kripto AL Sinyali!</b>\n\n"
         mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
@@ -433,7 +365,7 @@ def tara(hisse_listesi):
         mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW %10"
         telegram_gonder(mesaj)
 
-    if not any([bulunanlar_bist, bulunanlar_abd, bulunanlar_kripto]):
+    if not bulunanlar_bist and not bulunanlar_kripto:
         print("\nSinyal bulunamadı.")
 
 # ─────────────────────────────────────────────
@@ -441,35 +373,30 @@ def tara(hisse_listesi):
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     bist_listesi   = bist_listesi_cek()
-    abd_listesi    = abd_listesi_cek()
     kripto_listesi = kripto_listesi_cek()
-    tum_liste      = list(dict.fromkeys(bist_listesi + abd_listesi + kripto_listesi))
+    tum_liste      = list(dict.fromkeys(bist_listesi + kripto_listesi))
 
     toplam  = len(tum_liste)
     sure_dk = int(toplam * (BEKLEME_MIN + BEKLEME_MAX) / 2 / 60)
 
     telegram_gonder(
-        f"🤖 <b>Kombine Sinyal Botu Başlatıldı!</b>\n\n"
+        f"🤖 <b>Bot 1 — BIST + Kripto Başlatıldı!</b>\n\n"
         f"🇹🇷 BIST: {len(bist_listesi)} hisse\n"
-        f"🇺🇸 ABD (S&P500+NYSE+NASDAQ): {len(abd_listesi)} hisse\n"
-        f"🪙 Kripto (CoinGecko top 400): {len(kripto_listesi)} coin\n"
+        f"🪙 Kripto: {len(kripto_listesi)} coin\n"
         f"🔢 Toplam: {toplam} sembol\n"
         f"⏱ Tarama süresi: ~{sure_dk} dakika\n\n"
         f"<b>Filtreler:</b>\n"
         f"• BIST Hacim ≥ 20M TL\n"
-        f"• ABD Hacim ≥ 10M USD\n"
         f"• Kripto Hacim ≥ 10M USD\n"
         f"• Fisher crossover (2 mum, 0 altı)\n"
         f"• ALMA 4/9 crossover (2 mum)\n"
         f"• RSI ≤ 40\n"
-        f"• NW Envelope alt %10\n\n"
-        f"📅 Listeler her turda otomatik güncellenir"
+        f"• NW Envelope alt %10"
     )
 
     while True:
         bist_listesi   = bist_listesi_cek()
-        abd_listesi    = abd_listesi_cek()
         kripto_listesi = kripto_listesi_cek()
-        tum_liste      = list(dict.fromkeys(bist_listesi + abd_listesi + kripto_listesi))
+        tum_liste      = list(dict.fromkeys(bist_listesi + kripto_listesi))
         tara(tum_liste)
         print("\nYeni tur başlıyor...\n")
