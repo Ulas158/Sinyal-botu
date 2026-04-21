@@ -1,7 +1,7 @@
 # BIST Hisse Senetleri Listesi
 # Her satıra bir sembol yaz (büyük harf, .IS olmadan)
 # Yeni hisse eklemek için buraya ekle ve GitHub'a yükle
-
+d
 AEFES
 AGESA
 AGHOL
