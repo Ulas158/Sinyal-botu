@@ -5,7 +5,7 @@ import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
-import io
+from bs4 import BeautifulSoup
 
 # ─────────────────────────────────────────────
 # AYARLAR
@@ -15,81 +15,158 @@ CHAT_ID         = os.environ.get("CHAT_ID", "7116490869")
 MAX_BARS        = 2
 RSI_MAX         = 40.0
 NW_ZONE         = 0.10
-BEKLEME         = 3.0
 RETRY           = 3
-
-BIST_HACIM_MIN   = 20_000_000
-ABD_HACIM_MIN    = 10_000_000
-KRIPTO_HACIM_MIN = 10_000_000
+BEKLEME_MIN     = 3.0
+BEKLEME_MAX     = 6.0
+BIST_HACIM_MIN  = 20_000_000   # 20 milyon TL
 
 # ─────────────────────────────────────────────
-# TARAYICI GİBİ GÖRÜNEN HEADER'LAR
+# TARAYICI HEADER
 # ─────────────────────────────────────────────
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Safari/605.1.15",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
 ]
 
 def get_headers():
     return {
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
         "Cache-Control": "max-age=0",
     }
 
 # ─────────────────────────────────────────────
-# YAHOO FİNANCE'DEN VERİ ÇEK (requests ile)
+# KAP'TAN BIST LİSTESİ ÇEK (her çalıştırmada)
+# ─────────────────────────────────────────────
+BIST_YEDEK = [
+    "AEFES","AGESA","AGHOL","AHGAZ","AKENR","AKBNK","AKFEN","AKGRT","AKSA","AKSEN",
+    "ALARK","ALBRK","ALGYO","ALKIM","ALTNY","ANACM","ANELE","ANHYT","ANSGR","ARCLK",
+    "ARSAN","ASELS","ASTOR","AYEN","AYGAZ","BAGFS","BALSU","BERA","BIOEN","BIZIM",
+    "BJKAS","BNTAS","BOSSA","BRISA","BRKSN","BRSAN","BSOKE","BTCIM","BUCIM","BURCE",
+    "BURVA","BRYAT","CANTE","CCOLA","CELHA","CEMAS","CEMTS","CIMSA","CLEBI","COKAS",
+    "CRFSA","CUSAN","CVKMD","CWENE","DAGI","DAPGM","DARDL","DENGE","DESA","DEVA",
+    "DITAS","DMSAS","DOAS","DOBUR","DOGUB","DOHOL","DOKTA","DSTKF","DYOBY","DZGYO",
+    "ECILC","ECZYT","EDIP","EFOR","EGEEN","EGEPO","EGGUB","EGPRO","EKGYO","ENJSA",
+    "ENKAI","ENERY","EPLAS","ERBOS","EREGL","ERSU","ESCAR","ESEN","ETILR","EUHOL",
+    "EUPWR","EUREN","EUYO","FADE","FENER","FONET","FRIGO","FROTO","GARAN","GARFA",
+    "GEDZA","GENIL","GEREL","GESAN","GLYHO","GLRMK","GMTAS","GOODY","GOZDE","GRSEL",
+    "GRTHO","GSDHO","GSRAY","GUBRF","GWIND","HALKB","HATEK","HEDEF","HEKTS","HLGYO",
+    "HOROZ","HUBVC","HUNER","HURGZ","ICBCT","INDES","INVEO","IPEKE","ISATR","ISBIR",
+    "ISFIN","ISGYO","ISKPL","ISCTR","ISMEN","ISYAT","ITTFK","IZFAS","IZMDC","IZENR",
+    "JANTS","KAPLM","KARTN","KARSN","KATMR","KAYSE","KCHOL","KENT","KERVT","KGYO",
+    "KLGYO","KLKIM","KLRHO","KMPUR","KOCMT","KONYA","KONTR","KOPOL","KOZAL","KRDMD",
+    "KRTEK","KTLEV","KUYAS","KUTPO","LIDER","LOGO","MAALT","MAGEN","MARTI","MAVI",
+    "MAZGL","MEDTR","MEGAP","MERCN","MERIT","MERKO","METRO","MGROS","MIATK","MIPAZ",
+    "MNDRS","MOBTL","MOGAN","MPARK","MSGYO","MTRKS","NATEN","NETAS","NIBAS","NTTUR",
+    "NUHCM","OBASE","OBAMS","ODAS","ONCSM","ORCAY","ORGE","OSMEN","OSTIM","OTKAR",
+    "OTTO","OYAKC","OYAYO","OYLUM","OZGYO","OZKGY","PAGYO","PAHOL","PAMEL","PAPIL",
+    "PARSN","PASEU","PATEK","PEGYO","PEKMT","PENGD","PENTA","PETKM","PETUN","PGSUS",
+    "PINSU","PKART","PLTUR","POLHO","PRZMA","PSGYO","PTOFS","QUAGR","RALYH","RAYSG",
+    "REEDR","RNPOL","RODRG","ROYAL","RUBNS","RYGYO","SAFKR","SAHOL","SANEL","SANFM",
+    "SANKO","SARKY","SASA","SAYAS","SEGYO","SEKUR","SELEC","SELGD","SELVA","SILVR",
+    "SISE","SKBNK","SNGYO","SNPAM","SODSN","SOKM","SSTEK","SUWEN","TABGD","TATGD",
+    "TATEN","TAVHL","TBORG","TCELL","TEKTU","TERA","TGSAS","THYAO","TKFEN","TKNSA",
+    "TLMAN","TMPOL","TOASO","TRALT","TRCAS","TRENJ","TRMET","TRILC","TSGYO","TSKB",
+    "TTKOM","TTRAK","TUCLK","TUKAS","TUPRS","TUREX","TURSG","UFUK","ULUUN","UMPAS",
+    "ULKER","UNLU","USAK","VAKBN","VANGD","VBTYZ","VERUS","VESTL","VKFYO","VKGYO",
+    "YAPRK","YATAS","YEOTK","YESIL","YGYO","YKBNK","YUNSA","YYAPI","ZEDUR","ZOREN",
+]
+
+def kap_listesi_cek():
+    """KAP'tan tüm BIST şirket sembollerini çek."""
+    try:
+        print("KAP'tan BIST listesi çekiliyor...")
+        url = "https://www.kap.org.tr/tr/bist-sirketler"
+        r = requests.get(url, headers=get_headers(), timeout=20)
+        r.encoding = "utf-8"
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        semboller = []
+        # KAP'taki şirket sembollerini bul
+        for link in soup.find_all("a", href=True):
+            href = link["href"]
+            if "/tr/Sembol/" in href or "/tr/sirket/" in href.lower():
+                sembol = link.text.strip().upper()
+                if sembol and 2 <= len(sembol) <= 6 and sembol.isalpha():
+                    semboller.append(sembol)
+
+        # Alternatif: div/span içindeki semboller
+        if len(semboller) < 100:
+            for tag in soup.find_all(["td", "span", "div"]):
+                text = tag.text.strip().upper()
+                if 2 <= len(text) <= 6 and text.isalpha() and text not in semboller:
+                    # Hisse sembolü formatına uyuyor mu kontrol et
+                    if text[0].isalpha() and all(c.isalpha() for c in text):
+                        semboller.append(text)
+
+        semboller = list(dict.fromkeys(semboller))
+
+        if len(semboller) >= 50:
+            print(f"KAP: {len(semboller)} hisse bulundu")
+            return [s + ".IS" for s in semboller]
+        else:
+            raise Exception(f"Yeterli sembol bulunamadı: {len(semboller)}")
+
+    except Exception as e:
+        print(f"KAP listesi çekilemedi: {e}")
+        print("Yedek liste kullanılıyor...")
+        return [s + ".IS" for s in BIST_YEDEK]
+
+# ─────────────────────────────────────────────
+# TELEGRAM
+# ─────────────────────────────────────────────
+def telegram_gonder(mesaj):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    try:
+        requests.post(
+            url,
+            json={"chat_id": CHAT_ID, "text": mesaj, "parse_mode": "HTML"},
+            timeout=10
+        )
+    except Exception as e:
+        print(f"Telegram hatası: {e}")
+
+# ─────────────────────────────────────────────
+# YAHOO FİNANCE VERİ ÇEK
 # ─────────────────────────────────────────────
 def yahoo_veri_cek(ticker, deneme=0):
     try:
-        # Önce cookie al
         session = requests.Session()
         session.headers.update(get_headers())
-        
-        # Yahoo Finance cookie
-        cookie_url = "https://fc.yahoo.com"
         try:
-            session.get(cookie_url, timeout=5)
+            session.get("https://fc.yahoo.com", timeout=5)
         except:
             pass
-
-        crumb_url = "https://query1.finance.yahoo.com/v1/test/getcrumb"
         try:
-            crumb_r = session.get(crumb_url, timeout=5)
-            crumb = crumb_r.text
+            crumb = session.get(
+                "https://query1.finance.yahoo.com/v1/test/getcrumb",
+                timeout=5
+            ).text
         except:
             crumb = ""
 
-        # 1 saatlik veri çek (son 60 gün)
-        import time as t
-        end   = int(t.time())
-        start = end - 60 * 24 * 3600
+        end   = int(time.time())
+        start = end - 60 * 24 * 3600  # son 60 gün
 
         url = (
             f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
             f"?period1={start}&period2={end}&interval=1h&crumb={crumb}"
         )
-
         r = session.get(url, timeout=15)
         if r.status_code != 200:
             return None
 
-        data = r.json()
+        data  = r.json()
         chart = data.get("chart", {}).get("result", [])
         if not chart:
             return None
 
-        timestamps = chart[0]["timestamp"]
+        timestamps = chart[0].get("timestamp", [])
         ohlcv      = chart[0]["indicators"]["quote"][0]
 
         df = pd.DataFrame({
@@ -115,115 +192,21 @@ def yahoo_veri_cek(ticker, deneme=0):
         return df
 
     except Exception as e:
-        hata = str(e)
         if deneme < RETRY:
             time.sleep(10 * (deneme + 1))
             return yahoo_veri_cek(ticker, deneme + 1)
         return None
 
 # ─────────────────────────────────────────────
-# BIST
+# HACİM FİLTRESİ
 # ─────────────────────────────────────────────
-BIST = [
-    "AEFES.IS","AGESA.IS","AHGAZ.IS","AKENR.IS","AKBNK.IS","AKFEN.IS","AKGRT.IS",
-    "AKSA.IS","AKSEN.IS","ALARK.IS","ALBRK.IS","ALGYO.IS","ALKIM.IS","ANACM.IS",
-    "ANELE.IS","ANHYT.IS","ANSGR.IS","ARCLK.IS","ARSAN.IS","ASELS.IS","ASTOR.IS",
-    "AYEN.IS","AYGAZ.IS","BAGFS.IS","BERA.IS","BIOEN.IS","BIZIM.IS","BJKAS.IS",
-    "BNTAS.IS","BOSSA.IS","BRISA.IS","BRKSN.IS","BSOKE.IS","BTCIM.IS","BUCIM.IS",
-    "BURCE.IS","BURVA.IS","CANTE.IS","CCOLA.IS","CELHA.IS","CEMAS.IS","CEMTS.IS",
-    "CIMSA.IS","CLEBI.IS","COKAS.IS","CRFSA.IS","CUSAN.IS","DAGI.IS","DARDL.IS",
-    "DENGE.IS","DESA.IS","DEVA.IS","DITAS.IS","DMSAS.IS","DOAS.IS","DOBUR.IS",
-    "DOGUB.IS","DOKTA.IS","DYOBY.IS","DZGYO.IS","ECILC.IS","ECZYT.IS","EDIP.IS",
-    "EGEEN.IS","EGEPO.IS","EGGUB.IS","EGPRO.IS","EKGYO.IS","ENJSA.IS","ENKAI.IS",
-    "EPLAS.IS","ERBOS.IS","EREGL.IS","ERSU.IS","ESCAR.IS","ESEN.IS","ETILR.IS",
-    "EUHOL.IS","EUPWR.IS","EUYO.IS","FADE.IS","FENER.IS","FONET.IS","FRIGO.IS",
-    "FROTO.IS","GARAN.IS","GARFA.IS","GEDZA.IS","GENIL.IS","GEREL.IS","GLYHO.IS",
-    "GMTAS.IS","GOODY.IS","GOZDE.IS","GRSEL.IS","GSDHO.IS","GSRAY.IS","GUBRF.IS",
-    "GWIND.IS","HATEK.IS","HEDEF.IS","HEKTS.IS","HALKB.IS","HLGYO.IS","HOROZ.IS",
-    "HUBVC.IS","HUNER.IS","HURGZ.IS","ICBCT.IS","INDES.IS","INVEO.IS","IPEKE.IS",
-    "ISATR.IS","ISBIR.IS","ISFIN.IS","ISGYO.IS","ISKPL.IS","ISCTR.IS","ISYAT.IS",
-    "ITTFK.IS","IZFAS.IS","IZMDC.IS","JANTS.IS","KAPLM.IS","KARTN.IS","KARSN.IS",
-    "KATMR.IS","KAYSE.IS","KENT.IS","KERVT.IS","KCHOL.IS","KGYO.IS","KLGYO.IS",
-    "KLKIM.IS","KMPUR.IS","KOCMT.IS","KONYA.IS","KONTR.IS","KOPOL.IS","KRDMD.IS",
-    "KRTEK.IS","KOZAL.IS","KUTPO.IS","LIDER.IS","LOGO.IS","MAALT.IS","MAGEN.IS",
-    "MARTI.IS","MAVI.IS","MAZGL.IS","MEDTR.IS","MEGAP.IS","MERCN.IS","MERIT.IS",
-    "MERKO.IS","METRO.IS","MGROS.IS","MIPAZ.IS","MNDRS.IS","MOBTL.IS","MOGAN.IS",
-    "MSGYO.IS","MTRKS.IS","NATEN.IS","NETAS.IS","NIBAS.IS","NTTUR.IS","NUHCM.IS",
-    "OBASE.IS","ODAS.IS","ONCSM.IS","ORCAY.IS","ORGE.IS","OSMEN.IS","OSTIM.IS",
-    "OTKAR.IS","OTTO.IS","OYAKC.IS","OYAYO.IS","OYLUM.IS","OZGYO.IS","OZKGY.IS",
-    "PAGYO.IS","PAMEL.IS","PAPIL.IS","PARSN.IS","PEGYO.IS","PEKMT.IS","PENGD.IS",
-    "PENTA.IS","PETKM.IS","PETUN.IS","PGSUS.IS","PINSU.IS","PKART.IS","PLTUR.IS",
-    "POLHO.IS","PRZMA.IS","PTOFS.IS","QUAGR.IS","RAYSG.IS","RNPOL.IS","RODRG.IS",
-    "ROYAL.IS","RUBNS.IS","RYGYO.IS","SAFKR.IS","SAHOL.IS","SANEL.IS","SANFM.IS",
-    "SANKO.IS","SARKY.IS","SASA.IS","SAYAS.IS","SEGYO.IS","SEKUR.IS","SELEC.IS",
-    "SELGD.IS","SELVA.IS","SILVR.IS","SISE.IS","SNGYO.IS","SNPAM.IS","SODSN.IS",
-    "SOKM.IS","SSTEK.IS","SUWEN.IS","TATGD.IS","TATEN.IS","TAVHL.IS","TBORG.IS",
-    "TCELL.IS","TEKTU.IS","TERA.IS","TGSAS.IS","THYAO.IS","TKFEN.IS","TKNSA.IS",
-    "TLMAN.IS","TMPOL.IS","TOASO.IS","TRCAS.IS","TRILC.IS","TSGYO.IS","TSKB.IS",
-    "TTKOM.IS","TTRAK.IS","TUCLK.IS","TUKAS.IS","TUPRS.IS","TURSG.IS","UFUK.IS",
-    "ULUUN.IS","UMPAS.IS","ULKER.IS","UNLU.IS","USAK.IS","VAKBN.IS","VANGD.IS",
-    "VBTYZ.IS","VERUS.IS","VESTL.IS","VKFYO.IS","VKGYO.IS","YAPRK.IS","YATAS.IS",
-    "YEOTK.IS","YESIL.IS","YGYO.IS","YKBNK.IS","YUNSA.IS","YYAPI.IS","ZEDUR.IS",
-    "ZOREN.IS",
-]
-
-ABD = [
-    "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","TSLA","BRK-B","JPM",
-    "V","UNH","XOM","LLY","JNJ","MA","AVGO","PG","HD","MRK",
-    "COST","ABBV","CVX","PEP","KO","ADBE","WMT","BAC","CRM","MCD",
-    "TMO","CSCO","ACN","ABT","LIN","DHR","TXN","NEE","PM","ORCL",
-    "RTX","QCOM","HON","UPS","AMGN","IBM","GS","CAT","INTU","SPGI",
-    "BLK","ISRG","VRTX","GILD","SYK","REGN","PLD","AMT","CI","LRCX",
-    "ADI","MDLZ","MMC","ZTS","MO","DUK","SO","ITW","AON","GE",
-    "EQIX","TJX","BSX","CME","NOC","ETN","CL","SHW","MCO","PGR",
-    "APD","EMR","WM","FCX","HCA","NSC","ADP","ECL","F","GM",
-    "ELV","HUM","FTNT","SNPS","CDNS","PAYX","MCHP","KLAC","AMAT","NXPI",
-    "MMM","AXP","BA","DIS","DOW","NKE","TRV","VZ","WBA","MU",
-    "ABNB","ADSK","ALGN","ANSS","CMCSA","CPRT","CSGP","CTAS","CTSH","DDOG",
-    "DLTR","DOCU","DXCM","EA","EBAY","ENPH","FAST","FISV","IDXX","ILMN",
-    "INTC","JD","KDP","LULU","MAR","MELI","MNST","MRNA","MRVL","MTCH",
-    "NFLX","NVAX","OKTA","PANW","PCAR","PDD","PYPL","RIVN","ROST","SBUX",
-    "SPLK","SWKS","TEAM","TMUS","TTWO","VRSK","VRSN","WDAY","WDC","ZM",
-    "ZS","HUBS","SNOW","PLTR","RBLX","COIN","AFRM","UPST","SOFI","HOOD",
-    "LCID","DKNG","FUTU","GRAB","T","CHTR","PARA","WBD","FOX","FOXA",
-    "LMT","GD","TDG","CVS","MCK","ABC","CAH","THC","UHS","CNC",
-    "MOH","COP","EOG","PXD","DVN","FANG","MRO","APA","OXY","D",
-    "EXC","SRE","AEP","XEL","WEC","ES","WFC","C","MS","BK",
-    "STT","USB","PNC","CB","AIG","MET","PRU","AFL","ALL","HIG",
-    "CCI","SBAC","DLR","PSA","EXR","AVB","EQR","SPG","O","NNN",
-    "WELL","VTR","ARE","BXP","DE","CMI","ROK","NUE","STLD","CLF",
-    "NEM","AEM","GOLD","KGC","UNP","CSX","FDX","JBHT","CHRW","XPO",
-    "ODFL","TGT","BBY","DG","FIVE","YUM","QSR","DPZ","CMG","TXRH",
-    "PFE","BMY","AMD","SQ","NU","GPN","FIS","NOW","SAP","ACN",
-    "NIO","LI","XPEV","INJ","CELH","DXCM","PODD","TNDM","HOLX","AZEK",
-]
-
-KRIPTO = [
-    "BTC-USD","ETH-USD","BNB-USD","XRP-USD","SOL-USD","ADA-USD","DOGE-USD",
-    "TRX-USD","DOT-USD","MATIC-USD","LTC-USD","SHIB-USD","AVAX-USD","UNI-USD",
-    "LINK-USD","ATOM-USD","XLM-USD","ETC-USD","BCH-USD","APT-USD","FIL-USD",
-    "NEAR-USD","ICP-USD","VET-USD","HBAR-USD","QNT-USD","ALGO-USD","GRT-USD",
-    "EGLD-USD","AAVE-USD","XMR-USD","EOS-USD","SAND-USD","MANA-USD","AXS-USD",
-    "THETA-USD","FTM-USD","FLOW-USD","STX-USD","XTZ-USD","DASH-USD","COMP-USD",
-    "YFI-USD","SNX-USD","SUSHI-USD","1INCH-USD","CAKE-USD","OMG-USD","LRC-USD",
-    "RUNE-USD","DYDX-USD","IMX-USD","GALA-USD","LDO-USD","APE-USD","OP-USD",
-    "ARB-USD","SUI-USD","SEI-USD","TIA-USD","PYTH-USD","WIF-USD","BONK-USD",
-    "PEPE-USD","FLOKI-USD","ORDI-USD","LUNC-USD","RAY-USD","DGB-USD","RVN-USD",
-    "MASK-USD","ROSE-USD","WBTC-USD","INJ-USD","FET-USD","RNDR-USD","OCEAN-USD",
-    "WLD-USD","HIGH-USD","ACH-USD",
-]
-
-TUM_HISSELER = list(dict.fromkeys(BIST + ABD + KRIPTO))
-
-# ─────────────────────────────────────────────
-# TELEGRAM
-# ─────────────────────────────────────────────
-def telegram_gonder(mesaj):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+def hacim_gecti(df):
     try:
-        requests.post(url, json={"chat_id": CHAT_ID, "text": mesaj, "parse_mode": "HTML"}, timeout=10)
-    except Exception as e:
-        print(f"Telegram hatası: {e}")
+        son3gun   = df.tail(18)  # 3 gün × 6 mum/gün
+        ort_hacim = son3gun["Volume"].mean()
+        return ort_hacim >= BIST_HACIM_MIN
+    except:
+        return False
 
 # ─────────────────────────────────────────────
 # İNDİKATÖRLER
@@ -245,8 +228,11 @@ def fisher_transform(high, low, length=9):
     val   = np.zeros(len(hl2))
     fish1 = np.zeros(len(hl2))
     for i in range(1, len(hl2)):
-        denom = (high_[i] - low_[i])
-        raw   = 0.66 * ((hl2[i] - low_[i]) / denom - 0.5) + 0.67 * val[i-1] if denom != 0 else 0.67 * val[i-1]
+        denom = high_[i] - low_[i]
+        raw   = (
+            0.66 * ((hl2[i] - low_[i]) / denom - 0.5) + 0.67 * val[i-1]
+            if denom != 0 else 0.67 * val[i-1]
+        )
         val[i]   = max(min(raw, 0.999), -0.999)
         fish1[i] = 0.5 * np.log((1 + val[i]) / (1 - val[i])) + 0.5 * fish1[i-1]
     fish2    = np.roll(fish1, 1)
@@ -272,30 +258,14 @@ def nw_envelope(close, h=8.0, mult=3.0, n=200):
     mae = np.mean(np.abs(src - out)) * mult
     return out, out - mae, out + mae
 
-def crossover_bars_ago(a, b, max_bars=MAX_BARS):
-    for i in range(max_bars + 1):
+def crossover_bars_ago(a, b):
+    for i in range(MAX_BARS + 1):
         idx = -1 - i
         if len(a) < abs(idx) + 1:
             return None
         if a[idx] > b[idx] and a[idx-1] <= b[idx-1]:
             return i
     return None
-
-# ─────────────────────────────────────────────
-# HACİM FİLTRESİ
-# ─────────────────────────────────────────────
-def hacim_gecti(ticker, df):
-    try:
-        son3gun  = df.tail(18)
-        ort_hacim = son3gun["Volume"].mean()
-        if ticker.endswith(".IS"):
-            return ort_hacim >= BIST_HACIM_MIN
-        elif ticker.endswith("-USD"):
-            return ort_hacim >= KRIPTO_HACIM_MIN
-        else:
-            return ort_hacim >= ABD_HACIM_MIN
-    except:
-        return False
 
 # ─────────────────────────────────────────────
 # HİSSE TARA
@@ -306,30 +276,35 @@ def hisse_tara(ticker):
         if df is None:
             return False
 
-        if not hacim_gecti(ticker, df):
+        # Hacim filtresi
+        if not hacim_gecti(df):
             return False
 
         close = df["Close"].values.astype(float)
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
+        # 1) FISHER — mavi kırmızıyı yukarı kessın, 0 altında, son 2 mum
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2)
         if fisher_bars is None or fish1[-1 - fisher_bars] >= 0:
             return False
 
+        # 2) ALMA 4/9 — yukarı kesişim, son 2 mum
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9)
         if alma_bars is None:
             return False
 
+        # 3) RSI — SMA'yı yukarı kessın, RSI ≤ 40, son 2 mum
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma)
         if rsi_bars is None or rsi_vals[-1] > RSI_MAX:
             return False
 
+        # 4) NW ENVELOPE — fiyat alt bandın alt %10'unda
         mid, lower, upper = nw_envelope(close, h=8.0, mult=3.0)
         zone = lower + (mid - lower) * NW_ZONE
         if close[-1] > zone or close[-1] < lower:
@@ -344,28 +319,28 @@ def hisse_tara(ticker):
 # ─────────────────────────────────────────────
 # ANA TARAMA
 # ─────────────────────────────────────────────
-def tara():
-    print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(TUM_HISSELER)} sembol")
+def tara(hisse_listesi):
+    print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(hisse_listesi)} hisse")
     bulunanlar = []
 
-    for i, ticker in enumerate(TUM_HISSELER):
-        print(f"  [{i+1}/{len(TUM_HISSELER)}] {ticker}", end=" ", flush=True)
+    for i, ticker in enumerate(hisse_listesi):
+        print(f"  [{i+1}/{len(hisse_listesi)}] {ticker}", end=" ", flush=True)
         if hisse_tara(ticker):
             print("✓ SİNYAL")
             bulunanlar.append(ticker)
         else:
             print("✗")
-        time.sleep(BEKLEME + random.uniform(0, 1))  # rastgele bekleme
+        time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
     if bulunanlar:
-        mesaj = "🟢 <b>AL Sinyali!</b>\n\n"
+        mesaj = "🟢 <b>BIST AL Sinyali!</b>\n\n"
         mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
         mesaj += f"📊 Zaman Dilimi: 4 Saatlik\n\n"
         mesaj += "<b>Hisseler:</b>\n"
         for h in bulunanlar:
-            temiz = h.replace(".IS","").replace("-USD"," 🪙")
-            mesaj += f"  • {temiz}\n"
-        mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW Envelope %10"
+            mesaj += f"  • {h.replace('.IS', '')}\n"
+        mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW Envelope %10\n"
+        mesaj += f"📋 Hacim filtresi: ≥20M TL (3 gün ort.)"
         telegram_gonder(mesaj)
         print(f"\n✅ Telegram gönderildi: {bulunanlar}")
     else:
@@ -375,18 +350,29 @@ def tara():
 # BAŞLAT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
+    # Her başlangıçta KAP'tan güncel listeyi çek
+    bist_listesi = kap_listesi_cek()
+
+    toplam     = len(bist_listesi)
+    ort_sure   = (BEKLEME_MIN + BEKLEME_MAX) / 2
+    sure_dk    = int(toplam * ort_sure / 60)
+
     telegram_gonder(
-        "🤖 <b>Sinyal Botu Başlatıldı!</b>\n\n"
-        "📊 BIST + NYSE + NASDAQ + Kripto\n"
-        "⏰ Sürekli tarama (4 saatlik mum)\n\n"
-        "Filtreler:\n"
-        "• Fisher crossover (2 mum, 0 altı)\n"
-        "• ALMA 4/9 crossover (2 mum)\n"
-        "• RSI ≤ 40\n"
-        "• NW Envelope alt %10\n"
-        "• Hacim: son 3 gün ortalaması"
+        f"🤖 <b>BIST Sinyal Botu Başlatıldı!</b>\n\n"
+        f"📋 Liste kaynağı: KAP (kap.org.tr)\n"
+        f"🔢 Toplam hisse: {toplam}\n"
+        f"⏱ Tarama süresi: ~{sure_dk} dakika\n\n"
+        f"<b>Filtreler:</b>\n"
+        f"• Hacim ≥ 20M TL (son 3 gün)\n"
+        f"• Fisher crossover (2 mum, 0 altı)\n"
+        f"• ALMA 4/9 crossover (2 mum)\n"
+        f"• RSI ≤ 40\n"
+        f"• NW Envelope alt %10\n\n"
+        f"📅 Liste her yeniden başlatmada güncellenir"
     )
+
     while True:
-        tara()
-        print("\n4 saat bekleniyor...")
-        time.sleep(4 * 60 * 60)
+        # Her turda listeyi yeniden çek (yeni hisseler dahil olsun)
+        bist_listesi = kap_listesi_cek()
+        tara(bist_listesi)
+        print("\nYeni tur başlıyor...\n")
