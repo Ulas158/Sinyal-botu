@@ -171,35 +171,22 @@ KRIPTO_YEDEK = [
 
 def kripto_listesi_cek():
     try:
-        print("Binance API'den top 400 kripto çekiliyor...")
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        r = requests.get(url, timeout=15)
-        if r.status_code != 200:
-            raise Exception(f"HTTP {r.status_code}")
-
-        data = r.json()
-
-        # Sadece USDT çiftlerini al, hacme göre sırala
-        usdt_coins = [
-            d for d in data
-            if d["symbol"].endswith("USDT") and float(d["quoteVolume"]) > 0
-        ]
-        usdt_coins.sort(key=lambda x: float(x["quoteVolume"]), reverse=True)
-
-        # Top 400 — sembolü Yahoo Finance formatına çevir (BTCUSDT → BTC-USD)
-        semboller = []
-        for d in usdt_coins[:400]:
-            sembol = d["symbol"].replace("USDT", "")
-            if sembol and len(sembol) <= 10:
-                semboller.append(sembol + "-USD")
-
-        semboller = list(dict.fromkeys(semboller))
-        if len(semboller) >= 50:
-            print(f"Kripto (Binance): {len(semboller)} coin")
-            return semboller
-        raise Exception(f"Yeterli coin yok: {len(semboller)}")
+        print("GitHub'dan kripto.txt çekiliyor...")
+        url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/kripto.txt"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            semboller = [
+                line.strip().upper() + "-USD"
+                for line in r.text.splitlines()
+                if line.strip() and not line.startswith("#")
+            ]
+            semboller = list(dict.fromkeys(semboller))
+            if len(semboller) >= 50:
+                print(f"Kripto: {len(semboller)} coin")
+                return semboller
+        raise Exception(f"HTTP {r.status_code}")
     except Exception as e:
-        print(f"Binance hatası: {e} — yedek liste")
+        print(f"kripto.txt hatası: {e} — yedek liste")
         return KRIPTO_YEDEK
 
 # ─────────────────────────────────────────────
