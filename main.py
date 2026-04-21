@@ -264,7 +264,7 @@ def yahoo_veri_cek(ticker, deneme=0):
 
     except Exception as e:
         if deneme < RETRY:
-            time.sleep(10 * (deneme + 1))
+            time.sleep(3 * (deneme + 1))
             return yahoo_veri_cek(ticker, deneme + 1)
         return None
 
