@@ -194,53 +194,72 @@ def hongkong_listesi_cek():
 # ALMANYA — Frankfurt Borsası
 # ─────────────────────────────────────────────
 ALMANYA_LISTE = [
+    # DAX 40
     "SAP","AIR","ADS","ALV","MUV2","DTE","RWE","SIE","BMW","MBG",
     "DBK","DPW","HEI","VOW3","BAS","BAYN","ENR","FRE","HEN3","IFX",
-    "MRK","MTX","PUM","QIA","RHM","SHL","SY1","VNA","ZAL","1COV",
-    "AFX","AG1","AIXA","BOSS","CARL","COK","COP","EVD","FME","GFK",
-    "HFG","HOT","JEN","KGX","LEG","LHA","LXS","MDO","NDX1","NEM",
-    "O2D","PAH3","PBB","SDF","SFQ","SGL","SKB","SMHN","SZG","TLX",
-    "TUI1","VBK","WAF","VOS","VIB3","UTDI","TPVG","TEG","TDT","SW",
+    "MRK","PUM","QIA","RHM","SHL","SY1","VNA","ZAL","1COV","BNR",
+    "CON","P911","HNR1","DHER","DWS","FME","HLAG","IONOS","MBB","MTX",
+    # MDAX
+    "AFX","AG1","AIXA","BOSS","CARL","COK","COP","EVD","GFK","HFG",
+    "HOT","JEN","KGX","LEG","LHA","LXS","MDO","NDX1","NEM","O2D",
+    "PAH3","PBB","SDF","SFQ","SGL","SKB","SMHN","SZG","TLX","TUI1",
+    "VBK","WAF","VOS","VIB3","UTDI","TEG","TDT","SW","FNTN","GBF",
+    "KSB3","OSR","SOW","STO3","TBO","TPVG","EVT","CARL","MXHN","NGLB",
+    # SDAX
     "SRT3","SLT","SIX2","SIS","RAA","RKET","PSM","PRG","NOEJ","NDA",
     "MVOB","MOR","MNX","MLP","KION","KD8","JUN3","IVU","ISRA","HHFA",
-    "HDD","HAB","GXI","GWI","GBF","GAM","EVT","ERF","DHER","DEQ",
-    "DBQ","DAR","CWC","CWB","CUE","CM","CIO","CEC","CBK","CAP",
-    "BYW6","BWBK","BVB","BNR","BC8","BAF","AT1","ARL","APN","AOF",
-    "AMO","ADV","ADL","ADJ","ADF","ADC","ACX","ACT","WDI","TUI",
-    "SDAX","MTX","XONA","VBK","UTDI","TEG","SZG","SLT","SIS","SIX2",
-    "RAA","RKET","PRG","PSM","NOEJ","NDA","MVOB","MOR","MLP","MNX",
-    "KION","KD8","JUN3","IVU","ISRA","HAB","HDD","HHFA","GXI","GWI",
-    "GBF","GAM","EVT","ERF","DHER","DEQ","DBQ","CWC","CWB","CUE",
-    "CM","CIO","CEC","CBK","CAP","BYW6","BWBK","BVB","BNR","BC8",
-    "BAF","AT1","ARL","APN","AOF","AMO","ADV","ADL","ADJ","ADF",
-    "ADC","ACX","ACT","TUI1","VOS","VIB3","TPVG","TDT","SW","SRT3",
+    "HDD","HAB","GXI","GWI","GAM","ERF","DEQ","DAR","CWC","CUE",
+    "CIO","CEC","CBK","CAP","BYW6","BVB","BAF","AT1","ARL","APN",
+    "AMO","ADV","ACX","ACT","TUI","AAD","WDI","LEO","KWS","EVO",
+    # TecDAX
+    "NDA","NDX1","PSM","QIA","SGL","SIS","SLT","SRT3","TEG","TLX",
+    "UTDI","VBK","WAF","ZAL","SOW","DWS","FNTN","AIXA","IFX","JEN",
 ]
 
 def almanya_listesi_cek():
-    # stockanalysis.com'dan Frankfurt listesi çek
+    # Plan A: FinanceDataReader ETR
     try:
-        print("Almanya listesi çekiliyor (stockanalysis.com)...")
-        url = "https://stockanalysis.com/list/frankfurt-stock-exchange/"
-        r = requests.get(url, headers=get_headers(), timeout=20)
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(r.text, "html.parser")
-        semboller = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if "/stocks/" in href and href.endswith("/"):
-                sembol = a.text.strip().upper()
-                if sembol and len(sembol) <= 6 and sembol.replace("-","").isalpha():
-                    semboller.append(sembol + ".DE")
+        print("Almanya listesi çekiliyor (FinanceDataReader ETR)...")
+        import FinanceDataReader as fdr
+        df = fdr.StockListing("ETR")
+        semboller = [str(s).strip() + ".DE" for s in df["Symbol"].dropna().tolist() if str(s).strip()]
         semboller = list(dict.fromkeys(semboller))
         if len(semboller) >= 50:
-            print(f"Almanya (stockanalysis): {len(semboller)} hisse")
+            print(f"Almanya (ETR): {len(semboller)} hisse")
             return semboller
         raise Exception(f"Yeterli sembol yok: {len(semboller)}")
     except Exception as e:
-        print(f"stockanalysis hatası: {e}")
-        semboller = list(dict.fromkeys([s + ".DE" for s in ALMANYA_LISTE]))
-        print(f"Almanya sabit liste: {len(semboller)} hisse")
-        return semboller
+        print(f"FinanceDataReader ETR hatası: {e}")
+
+    # Plan B: Deutsche Börse Xetra resmi listesi
+    try:
+        print("Almanya listesi çekiliyor (Xetra)...")
+        url = "https://stockanalysis.com/list/deutsche-boerse-xetra/"
+        headers = get_headers()
+        headers["Accept"] = "application/json, text/plain, */*"
+        r = requests.get(url, headers=headers, timeout=20)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(r.text, "html.parser")
+        semboller = []
+        # Tablodaki semboller
+        for td in soup.find_all("td"):
+            a = td.find("a")
+            if a and "/stocks/" in a.get("href",""):
+                sembol = a.text.strip().upper()
+                if sembol and 1 <= len(sembol) <= 6:
+                    semboller.append(sembol + ".DE")
+        semboller = list(dict.fromkeys(semboller))
+        if len(semboller) >= 50:
+            print(f"Almanya (Xetra): {len(semboller)} hisse")
+            return semboller
+        raise Exception(f"Yeterli sembol yok: {len(semboller)}")
+    except Exception as e:
+        print(f"Xetra hatası: {e}")
+
+    # Plan C: Sabit liste
+    semboller = list(dict.fromkeys([s + ".DE" for s in ALMANYA_LISTE]))
+    print(f"Almanya sabit liste: {len(semboller)} hisse")
+    return semboller
 
 # ─────────────────────────────────────────────
 # TELEGRAM
