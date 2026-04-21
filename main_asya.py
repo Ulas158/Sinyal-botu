@@ -101,6 +101,7 @@ def japonya_listesi_cek():
         df = fdr.StockListing("TSE")
         semboller = [str(s).strip() + ".T" for s in df["Symbol"].dropna().tolist() if str(s).strip()]
         semboller = list(dict.fromkeys(semboller))
+        semboller = semboller[:1500]  # top 1500
         if len(semboller) >= 100:
             print(f"Japonya (TSE): {len(semboller)} hisse")
             return semboller
@@ -179,6 +180,7 @@ def hongkong_listesi_cek():
             if s.isdigit():
                 sonuc.append(s.zfill(4) + ".HK")
         sonuc = list(dict.fromkeys(sonuc))
+        sonuc = sonuc[:1500]  # top 1500
         if len(sonuc) >= 50:
             print(f"Hong Kong (HKEX): {len(sonuc)} hisse")
             return sonuc
@@ -215,19 +217,27 @@ ALMANYA_LISTE = [
 ]
 
 def almanya_listesi_cek():
-    # FinanceDataReader ile Frankfurt listesi çek
+    # stockanalysis.com'dan Frankfurt listesi çek
     try:
-        print("Almanya listesi çekiliyor (FinanceDataReader)...")
-        import FinanceDataReader as fdr
-        df = fdr.StockListing("XFRA")
-        semboller = [str(s).strip() + ".DE" for s in df["Symbol"].dropna().tolist() if str(s).strip()]
+        print("Almanya listesi çekiliyor (stockanalysis.com)...")
+        url = "https://stockanalysis.com/list/frankfurt-stock-exchange/"
+        r = requests.get(url, headers=get_headers(), timeout=20)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(r.text, "html.parser")
+        semboller = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "/stocks/" in href and href.endswith("/"):
+                sembol = a.text.strip().upper()
+                if sembol and len(sembol) <= 6 and sembol.replace("-","").isalpha():
+                    semboller.append(sembol + ".DE")
         semboller = list(dict.fromkeys(semboller))
-        if len(semboller) >= 20:
-            print(f"Almanya (XFRA): {len(semboller)} hisse")
+        if len(semboller) >= 50:
+            print(f"Almanya (stockanalysis): {len(semboller)} hisse")
             return semboller
         raise Exception(f"Yeterli sembol yok: {len(semboller)}")
     except Exception as e:
-        print(f"FinanceDataReader XFRA hatası: {e}")
+        print(f"stockanalysis hatası: {e}")
         semboller = list(dict.fromkeys([s + ".DE" for s in ALMANYA_LISTE]))
         print(f"Almanya sabit liste: {len(semboller)} hisse")
         return semboller
