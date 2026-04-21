@@ -74,48 +74,28 @@ BIST_YEDEK = [
 ]
 
 def bist_listesi_cek():
-    """İş Yatırım sitesinden güncel BIST sembol listesini çek."""
-    import re
-
-    # Plan A: İş Yatırım sitesi
+    """GitHub'daki bist.txt dosyasından güncel BIST sembol listesini çek."""
     try:
-        print("İş Yatırım'dan BIST listesi çekiliyor...")
-        url = "https://www.isyatirim.com.tr/tr-tr/analiz/hisse/Sayfalar/Temel-Degerler-ve-Oranlar.aspx"
-        r = requests.get(url, headers=get_headers(), timeout=20)
-        semboller = list(dict.fromkeys(re.findall(r"[A-Z]{2,6}(?=\.E\b)", r.text)))
-        semboller = [s for s in semboller if 2 <= len(s) <= 6]
-        if len(semboller) >= 100:
-            print(f"İş Yatırım: {len(semboller)} hisse bulundu")
-            return [s + ".IS" for s in semboller]
-        raise Exception(f"Yeterli sembol yok: {len(semboller)}")
+        print("GitHub'dan bist.txt çekiliyor...")
+        # Kendi GitHub repondan çek — raw link
+        github_user = os.environ.get("GITHUB_USER", "Ulas158")
+        url = f"https://raw.githubusercontent.com/{github_user}/Sinyal-botu/main/bist.txt"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            semboller = [
+                line.strip().upper() + ".IS"
+                for line in r.text.splitlines()
+                if line.strip() and not line.startswith("#")
+            ]
+            semboller = list(dict.fromkeys(semboller))
+            if len(semboller) >= 50:
+                print(f"GitHub bist.txt: {len(semboller)} hisse bulundu")
+                return semboller
+        raise Exception(f"HTTP {r.status_code}")
     except Exception as e:
-        print(f"İş Yatırım hatası: {e}")
-
-    # Plan B: bigpara.hurriyet.com.tr
-    try:
-        print("Bigpara'dan BIST listesi çekiliyor...")
-        url = "https://bigpara.hurriyet.com.tr/borsa/hisse-fiyatlari/"
-        r = requests.get(url, headers=get_headers(), timeout=20)
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(r.text, "html.parser")
-        semboller = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if "/hisse/" in href and "/hisse-detay/" not in href:
-                text = a.text.strip().upper()
-                if 2 <= len(text) <= 6 and text.isalpha():
-                    semboller.append(text)
-        semboller = list(dict.fromkeys(semboller))
-        if len(semboller) >= 100:
-            print(f"Bigpara: {len(semboller)} hisse bulundu")
-            return [s + ".IS" for s in semboller]
-        raise Exception(f"Yeterli sembol yok: {len(semboller)}")
-    except Exception as e:
-        print(f"Bigpara hatası: {e}")
-
-    # Plan C: Yedek liste
-    print("Yedek liste kullanılıyor...")
-    return [s + ".IS" for s in BIST_YEDEK]
+        print(f"GitHub hatası: {e}")
+        print("Yedek liste kullanılıyor...")
+        return [s + ".IS" for s in BIST_YEDEK]
 
 
 # ─────────────────────────────────────────────
