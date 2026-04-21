@@ -74,21 +74,49 @@ BIST_YEDEK = [
 ]
 
 def bist_listesi_cek():
-    """isyatirimhisse ile güncel BIST sembol listesini çek."""
+    """İş Yatırım sitesinden güncel BIST sembol listesini çek."""
+    import re
+
+    # Plan A: İş Yatırım sitesi
     try:
-        from isyatirimhisse import StockData
-        print("isyatirimhisse ile BIST listesi çekiliyor...")
-        sd = StockData()
-        semboller = sd.get_all_symbols()
-        if semboller and len(semboller) > 100:
-            print(f"isyatirimhisse: {len(semboller)} hisse bulundu")
+        print("İş Yatırım'dan BIST listesi çekiliyor...")
+        url = "https://www.isyatirim.com.tr/tr-tr/analiz/hisse/Sayfalar/Temel-Degerler-ve-Oranlar.aspx"
+        r = requests.get(url, headers=get_headers(), timeout=20)
+        semboller = list(dict.fromkeys(re.findall(r"[A-Z]{2,6}(?=\.E\b)", r.text)))
+        semboller = [s for s in semboller if 2 <= len(s) <= 6]
+        if len(semboller) >= 100:
+            print(f"İş Yatırım: {len(semboller)} hisse bulundu")
             return [s + ".IS" for s in semboller]
-        else:
-            raise Exception("Yeterli sembol gelmedi")
+        raise Exception(f"Yeterli sembol yok: {len(semboller)}")
     except Exception as e:
-        print(f"isyatirimhisse hatası: {e}")
-        print("Yedek liste kullanılıyor...")
-        return [s + ".IS" for s in BIST_YEDEK]
+        print(f"İş Yatırım hatası: {e}")
+
+    # Plan B: bigpara.hurriyet.com.tr
+    try:
+        print("Bigpara'dan BIST listesi çekiliyor...")
+        url = "https://bigpara.hurriyet.com.tr/borsa/hisse-fiyatlari/"
+        r = requests.get(url, headers=get_headers(), timeout=20)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(r.text, "html.parser")
+        semboller = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "/hisse/" in href and "/hisse-detay/" not in href:
+                text = a.text.strip().upper()
+                if 2 <= len(text) <= 6 and text.isalpha():
+                    semboller.append(text)
+        semboller = list(dict.fromkeys(semboller))
+        if len(semboller) >= 100:
+            print(f"Bigpara: {len(semboller)} hisse bulundu")
+            return [s + ".IS" for s in semboller]
+        raise Exception(f"Yeterli sembol yok: {len(semboller)}")
+    except Exception as e:
+        print(f"Bigpara hatası: {e}")
+
+    # Plan C: Yedek liste
+    print("Yedek liste kullanılıyor...")
+    return [s + ".IS" for s in BIST_YEDEK]
+
 
 # ─────────────────────────────────────────────
 # TELEGRAM
