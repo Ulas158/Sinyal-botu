@@ -43,36 +43,30 @@ def get_headers():
 # JAPONYA — JPX sitesinden otomatik çek
 # ─────────────────────────────────────────────
 def japonya_listesi_cek():
-    # JPX'in aylık güncellenen Excel dosyasından ticker çek
+    # FinanceDataReader ile TSE listesi çek
     try:
-        print("Japonya listesi çekiliyor (JPX)...")
-        url = "https://raw.githubusercontent.com/LondonMarket/Global-Stock-Symbols/main/tse/tse_securities.csv"
-        r = requests.get(url, headers=get_headers(), timeout=20)
-        if r.status_code == 200:
-            df = pd.read_csv(StringIO(r.text))
-            col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower() or "code" in c.lower()]
-            if col:
-                semboller = df[col[0]].dropna().tolist()
-                semboller = [str(int(float(s))) + ".T" if str(s).replace(".","").isdigit() else str(s) + ".T"
-                           for s in semboller if str(s).strip()]
-                semboller = list(dict.fromkeys(semboller))
-                print(f"Japonya (JPX): {len(semboller)} hisse")
-                return semboller
-        raise Exception(f"HTTP {r.status_code}")
+        print("Japonya listesi çekiliyor (FinanceDataReader)...")
+        import FinanceDataReader as fdr
+        df = fdr.StockListing("TSE")
+        semboller = [str(s).strip() + ".T" for s in df["Symbol"].dropna().tolist() if str(s).strip()]
+        semboller = list(dict.fromkeys(semboller))
+        if len(semboller) >= 100:
+            print(f"Japonya (TSE): {len(semboller)} hisse")
+            return semboller
+        raise Exception(f"Yeterli sembol yok: {len(semboller)}")
     except Exception as e:
-        print(f"JPX hatası: {e}")
+        print(f"FinanceDataReader TSE hatası: {e}")
 
-    # Yedek: Nikkei 225 + JPX 400 kodları
+    # Yedek: Wikipedia Nikkei 225
     try:
-        print("Japonya yedek liste çekiliyor...")
+        print("Japonya yedek liste çekiliyor (Wikipedia)...")
         semboller = []
-        # Nikkei 225 bileşenleri Wikipedia'dan
         url = "https://en.wikipedia.org/wiki/Nikkei_225"
         r = requests.get(url, headers=get_headers(), timeout=15)
         tablolar = pd.read_html(r.text)
         for tablo in tablolar:
             for col in tablo.columns:
-                if "code" in str(col).lower() or "symbol" in str(col).lower() or "ticker" in str(col).lower():
+                if "code" in str(col).lower() or "symbol" in str(col).lower():
                     kodlar = tablo[col].dropna().tolist()
                     for k in kodlar:
                         k = str(k).strip()
@@ -118,27 +112,23 @@ def japonya_listesi_cek():
 # HONG KONG — HKEX listesi
 # ─────────────────────────────────────────────
 def hongkong_listesi_cek():
+    # FinanceDataReader ile HKEX listesi çek
     try:
-        print("Hong Kong listesi çekiliyor...")
-        url = "https://raw.githubusercontent.com/LondonMarket/Global-Stock-Symbols/main/hkex/hkex_securities.csv"
-        r = requests.get(url, headers=get_headers(), timeout=20)
-        if r.status_code == 200:
-            df = pd.read_csv(StringIO(r.text))
-            col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower() or "code" in c.lower() or "stock" in c.lower()]
-            if col:
-                semboller = df[col[0]].dropna().tolist()
-                sonuc = []
-                for s in semboller:
-                    s = str(s).strip().replace(".HK","").replace(".hk","")
-                    if s.isdigit():
-                        sonuc.append(s.zfill(4) + ".HK")
-                sonuc = list(dict.fromkeys(sonuc))
-                if len(sonuc) >= 50:
-                    print(f"Hong Kong: {len(sonuc)} hisse")
-                    return sonuc
-        raise Exception(f"HTTP {r.status_code}")
+        print("Hong Kong listesi çekiliyor (FinanceDataReader)...")
+        import FinanceDataReader as fdr
+        df = fdr.StockListing("HKEX")
+        sonuc = []
+        for s in df["Symbol"].dropna().tolist():
+            s = str(s).strip().replace(".HK","")
+            if s.isdigit():
+                sonuc.append(s.zfill(4) + ".HK")
+        sonuc = list(dict.fromkeys(sonuc))
+        if len(sonuc) >= 50:
+            print(f"Hong Kong (HKEX): {len(sonuc)} hisse")
+            return sonuc
+        raise Exception(f"Yeterli sembol yok: {len(sonuc)}")
     except Exception as e:
-        print(f"HKEX hatası: {e}")
+        print(f"FinanceDataReader HKEX hatası: {e}")
 
     # Yedek: Hang Seng bileşenleri
     print("Hong Kong sabit liste kullanılıyor...")
@@ -159,22 +149,38 @@ def hongkong_listesi_cek():
 # ALMANYA — Frankfurt Borsası
 # ─────────────────────────────────────────────
 def almanya_listesi_cek():
+    # FinanceDataReader ile Frankfurt listesi çek
     try:
-        print("Almanya listesi çekiliyor...")
-        url = "https://raw.githubusercontent.com/LondonMarket/Global-Stock-Symbols/main/fse/fse_securities.csv"
-        r = requests.get(url, headers=get_headers(), timeout=20)
-        if r.status_code == 200:
-            df = pd.read_csv(StringIO(r.text))
-            col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
-            if col:
-                semboller = [str(s).strip() + ".DE" for s in df[col[0]].dropna().tolist() if str(s).strip()]
-                semboller = list(dict.fromkeys(semboller))
-                if len(semboller) >= 20:
-                    print(f"Almanya: {len(semboller)} hisse")
-                    return semboller
-        raise Exception(f"HTTP {r.status_code}")
+        print("Almanya listesi çekiliyor (FinanceDataReader)...")
+        import FinanceDataReader as fdr
+        df = fdr.StockListing("XFRA")
+        semboller = [str(s).strip() + ".DE" for s in df["Symbol"].dropna().tolist() if str(s).strip()]
+        semboller = list(dict.fromkeys(semboller))
+        if len(semboller) >= 20:
+            print(f"Almanya (XFRA): {len(semboller)} hisse")
+            return semboller
+        raise Exception(f"Yeterli sembol yok: {len(semboller)}")
     except Exception as e:
-        print(f"FSE hatası: {e}")
+        print(f"FinanceDataReader XFRA hatası: {e}")
+
+    # Yedek: sabit DAX+MDAX+SDAX+TecDAX listesi
+    print("Almanya sabit liste kullanılıyor...")
+    almanya = [
+        "SAP","AIR","ADS","ALV","MUV2","DTE","RWE","SIE","BMW","MBG",
+        "DBK","DPW","HEI","VOW3","BAS","BAYN","ENR","FRE","HEN3","IFX",
+        "MRK","MTX","PUM","QIA","RHM","SHL","SY1","VNA","ZAL","1COV",
+        "AFX","AG1","AIXA","BOSS","CARL","COK","COP","EVD","FME","GFK",
+        "HFG","HOT","JEN","KGX","LEG","LHA","LXS","MDO","NDX1","NEM",
+        "O2D","PAH3","PBB","SDF","SFQ","SGL","SKB","SMHN","SZG","TLX",
+        "TUI1","VBK","WAF","VOS","VIB3","UTDI","TPVG","TEG","TDT","SW",
+        "SRT3","SLT","SIX2","SIS","RAA","RKET","PSM","PRG","NOEJ","NDA",
+        "MVOB","MOR","MNX","MLP","KION","KD8","JUN3","IVU","ISRA","HHFA",
+        "HDD","HAB","GXI","GWI","GBF","GAM","EVT","ERF","DHER","DEQ",
+        "DBQ","DAR","CWC","CWB","CUE","CM","CIO","CEC","CBK","CAP",
+        "BYW6","BWBK","BVB","BNR","BC8","BAF","AT1","ARL","APN","AOF",
+        "AMO","ADV","ADL","ADJ","ADF","ADC","ACX","ACT",
+    ]
+    return list(dict.fromkeys([s + ".DE" for s in almanya]))
 
     # Yedek: DAX + MDAX + SDAX + TecDAX
     print("Almanya sabit liste kullanılıyor...")
