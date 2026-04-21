@@ -5,7 +5,6 @@ import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from bs4 import BeautifulSoup
 
 # ─────────────────────────────────────────────
 # AYARLAR
@@ -18,11 +17,8 @@ NW_ZONE         = 0.10
 RETRY           = 3
 BEKLEME_MIN     = 3.0
 BEKLEME_MAX     = 6.0
-BIST_HACIM_MIN  = 20_000_000   # 20 milyon TL
+BIST_HACIM_MIN  = 20_000_000
 
-# ─────────────────────────────────────────────
-# TARAYICI HEADER
-# ─────────────────────────────────────────────
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -41,7 +37,7 @@ def get_headers():
     }
 
 # ─────────────────────────────────────────────
-# KAP'TAN BIST LİSTESİ ÇEK (her çalıştırmada)
+# BIST LİSTESİ — isyatirimhisse + yedek
 # ─────────────────────────────────────────────
 BIST_YEDEK = [
     "AEFES","AGESA","AGHOL","AHGAZ","AKENR","AKBNK","AKFEN","AKGRT","AKSA","AKSEN",
@@ -77,43 +73,20 @@ BIST_YEDEK = [
     "YAPRK","YATAS","YEOTK","YESIL","YGYO","YKBNK","YUNSA","YYAPI","ZEDUR","ZOREN",
 ]
 
-def kap_listesi_cek():
-    """KAP'tan tüm BIST şirket sembollerini çek."""
+def bist_listesi_cek():
+    """isyatirimhisse ile güncel BIST sembol listesini çek."""
     try:
-        print("KAP'tan BIST listesi çekiliyor...")
-        url = "https://www.kap.org.tr/tr/bist-sirketler"
-        r = requests.get(url, headers=get_headers(), timeout=20)
-        r.encoding = "utf-8"
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        semboller = []
-        # KAP'taki şirket sembollerini bul
-        for link in soup.find_all("a", href=True):
-            href = link["href"]
-            if "/tr/Sembol/" in href or "/tr/sirket/" in href.lower():
-                sembol = link.text.strip().upper()
-                if sembol and 2 <= len(sembol) <= 6 and sembol.isalpha():
-                    semboller.append(sembol)
-
-        # Alternatif: div/span içindeki semboller
-        if len(semboller) < 100:
-            for tag in soup.find_all(["td", "span", "div"]):
-                text = tag.text.strip().upper()
-                if 2 <= len(text) <= 6 and text.isalpha() and text not in semboller:
-                    # Hisse sembolü formatına uyuyor mu kontrol et
-                    if text[0].isalpha() and all(c.isalpha() for c in text):
-                        semboller.append(text)
-
-        semboller = list(dict.fromkeys(semboller))
-
-        if len(semboller) >= 50:
-            print(f"KAP: {len(semboller)} hisse bulundu")
+        from isyatirimhisse import StockData
+        print("isyatirimhisse ile BIST listesi çekiliyor...")
+        sd = StockData()
+        semboller = sd.get_all_symbols()
+        if semboller and len(semboller) > 100:
+            print(f"isyatirimhisse: {len(semboller)} hisse bulundu")
             return [s + ".IS" for s in semboller]
         else:
-            raise Exception(f"Yeterli sembol bulunamadı: {len(semboller)}")
-
+            raise Exception("Yeterli sembol gelmedi")
     except Exception as e:
-        print(f"KAP listesi çekilemedi: {e}")
+        print(f"isyatirimhisse hatası: {e}")
         print("Yedek liste kullanılıyor...")
         return [s + ".IS" for s in BIST_YEDEK]
 
@@ -151,7 +124,7 @@ def yahoo_veri_cek(ticker, deneme=0):
             crumb = ""
 
         end   = int(time.time())
-        start = end - 60 * 24 * 3600  # son 60 gün
+        start = end - 60 * 24 * 3600
 
         url = (
             f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
@@ -181,7 +154,6 @@ def yahoo_veri_cek(ticker, deneme=0):
         if len(df) < 50:
             return None
 
-        # 4 saatlik muma dönüştür
         df = df.resample("4h").agg({
             "Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"
         }).dropna()
@@ -202,7 +174,7 @@ def yahoo_veri_cek(ticker, deneme=0):
 # ─────────────────────────────────────────────
 def hacim_gecti(df):
     try:
-        son3gun   = df.tail(18)  # 3 gün × 6 mum/gün
+        son3gun   = df.tail(18)
         ort_hacim = son3gun["Volume"].mean()
         return ort_hacim >= BIST_HACIM_MIN
     except:
@@ -275,8 +247,6 @@ def hisse_tara(ticker):
         df = yahoo_veri_cek(ticker)
         if df is None:
             return False
-
-        # Hacim filtresi
         if not hacim_gecti(df):
             return False
 
@@ -284,27 +254,23 @@ def hisse_tara(ticker):
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
-        # 1) FISHER — mavi kırmızıyı yukarı kessın, 0 altında, son 2 mum
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2)
         if fisher_bars is None or fish1[-1 - fisher_bars] >= 0:
             return False
 
-        # 2) ALMA 4/9 — yukarı kesişim, son 2 mum
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9)
         if alma_bars is None:
             return False
 
-        # 3) RSI — SMA'yı yukarı kessın, RSI ≤ 40, son 2 mum
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma)
         if rsi_bars is None or rsi_vals[-1] > RSI_MAX:
             return False
 
-        # 4) NW ENVELOPE — fiyat alt bandın alt %10'unda
         mid, lower, upper = nw_envelope(close, h=8.0, mult=3.0)
         zone = lower + (mid - lower) * NW_ZONE
         if close[-1] > zone or close[-1] < lower:
@@ -340,7 +306,7 @@ def tara(hisse_listesi):
         for h in bulunanlar:
             mesaj += f"  • {h.replace('.IS', '')}\n"
         mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW Envelope %10\n"
-        mesaj += f"📋 Hacim filtresi: ≥20M TL (3 gün ort.)"
+        mesaj += f"📋 Hacim: ≥20M TL (3 gün ort.)"
         telegram_gonder(mesaj)
         print(f"\n✅ Telegram gönderildi: {bulunanlar}")
     else:
@@ -350,16 +316,13 @@ def tara(hisse_listesi):
 # BAŞLAT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    # Her başlangıçta KAP'tan güncel listeyi çek
-    bist_listesi = kap_listesi_cek()
-
-    toplam     = len(bist_listesi)
-    ort_sure   = (BEKLEME_MIN + BEKLEME_MAX) / 2
-    sure_dk    = int(toplam * ort_sure / 60)
+    bist_listesi = bist_listesi_cek()
+    toplam   = len(bist_listesi)
+    sure_dk  = int(toplam * (BEKLEME_MIN + BEKLEME_MAX) / 2 / 60)
 
     telegram_gonder(
         f"🤖 <b>BIST Sinyal Botu Başlatıldı!</b>\n\n"
-        f"📋 Liste kaynağı: KAP (kap.org.tr)\n"
+        f"📋 Kaynak: İş Yatırım (isyatirimhisse)\n"
         f"🔢 Toplam hisse: {toplam}\n"
         f"⏱ Tarama süresi: ~{sure_dk} dakika\n\n"
         f"<b>Filtreler:</b>\n"
@@ -368,11 +331,10 @@ if __name__ == "__main__":
         f"• ALMA 4/9 crossover (2 mum)\n"
         f"• RSI ≤ 40\n"
         f"• NW Envelope alt %10\n\n"
-        f"📅 Liste her yeniden başlatmada güncellenir"
+        f"📅 Liste her turda güncellenir (yeni hisseler dahil)"
     )
 
     while True:
-        # Her turda listeyi yeniden çek (yeni hisseler dahil olsun)
-        bist_listesi = kap_listesi_cek()
+        bist_listesi = bist_listesi_cek()
         tara(bist_listesi)
         print("\nYeni tur başlıyor...\n")
