@@ -257,23 +257,36 @@ def hisse_tara(ticker):
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
+        # 1) FISHER — yukarı kesişim + ters kırılım yok
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2)
         if fisher_bars is None or fish1[-1 - fisher_bars] >= 0:
             return False
+        for i in range(fisher_bars - 1, -1, -1):
+            if fish1[-1 - i] < fish2[-1 - i]:
+                return False
 
+        # 2) ALMA 4/9 — yukarı kesişim + ters kırılım yok
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9)
         if alma_bars is None:
             return False
+        for i in range(alma_bars - 1, -1, -1):
+            if alma4[-1 - i] < alma9[-1 - i]:
+                return False
 
+        # 3) RSI — yukarı kesişim + ters kırılım yok
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma)
         if rsi_bars is None or rsi_vals[-1] > RSI_MAX:
             return False
+        for i in range(rsi_bars - 1, -1, -1):
+            if rsi_vals[-1 - i] < rsi_sma[-1 - i]:
+                return False
 
+        # 4) NW ENVELOPE
         mid, lower, upper = nw_envelope(close, h=8.0, mult=3.0)
         zone = lower + (mid - lower) * NW_ZONE
         if close[-1] > zone or close[-1] < lower:
