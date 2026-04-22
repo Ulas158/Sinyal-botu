@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from io import StringIO
+from tvDatafeed import TvDatafeed, Interval
 
 # ─────────────────────────────────────────────
 # AYARLAR
@@ -13,42 +14,35 @@ from io import StringIO
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID        = os.environ.get("CHAT_ID", "7116490869")
 GITHUB_USER    = os.environ.get("GITHUB_USER", "Ulas158")
+TV_USERNAME    = os.environ.get("TV_USERNAME", "")
+TV_PASSWORD    = os.environ.get("TV_PASSWORD", "")
 MAX_BARS       = 2
 RSI_MAX        = 40.0
 NW_ZONE        = 0.10
-RETRY          = 3
-BEKLEME_MIN    = 3.0
-BEKLEME_MAX    = 6.0
+BEKLEME_MIN    = 0.5
+BEKLEME_MAX    = 1.5
 ABD_HACIM_MIN  = 10_000_000
+N_BARS         = 500
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-]
-
-def get_headers():
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Cache-Control": "max-age=0",
-    }
+# tvDatafeed bağlantısı
+try:
+    if TV_USERNAME and TV_PASSWORD:
+        tv = TvDatafeed(TV_USERNAME, TV_PASSWORD)
+        print("TradingView hesabıyla bağlandı ✓")
+    else:
+        tv = TvDatafeed()
+        print("TradingView anonim bağlandı ✓")
+except Exception as e:
+    tv = TvDatafeed()
 
 # ─────────────────────────────────────────────
-# ABD LİSTESİ — S&P500 + NYSE + NASDAQ top500
+# ABD LİSTESİ — S&P500 + NYSE + NASDAQ
 # ─────────────────────────────────────────────
 def abd_listesi_cek():
     semboller = []
-
-    # 1) S&P 500
     try:
-        print("S&P 500 çekiliyor...")
         url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
-        r = requests.get(url, headers=get_headers(), timeout=15)
+        r = requests.get(url, timeout=15)
         df = pd.read_csv(StringIO(r.text))
         sp500 = [s.replace(".", "-") for s in df["Symbol"].dropna().tolist()]
         semboller.extend(sp500)
@@ -56,11 +50,9 @@ def abd_listesi_cek():
     except Exception as e:
         print(f"S&P 500 hatası: {e}")
 
-    # 2) NYSE top 2000
     try:
-        print("NYSE çekiliyor...")
         url = "https://raw.githubusercontent.com/datasets/nyse-listings/master/data/nyse-listed.csv"
-        r = requests.get(url, headers=get_headers(), timeout=15)
+        r = requests.get(url, timeout=15)
         df = pd.read_csv(StringIO(r.text))
         col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
         if col:
@@ -70,21 +62,6 @@ def abd_listesi_cek():
             print(f"NYSE: {len(nyse)} hisse")
     except Exception as e:
         print(f"NYSE hatası: {e}")
-
-    # 3) NASDAQ top 500
-    try:
-        print("NASDAQ top 500 çekiliyor...")
-        url = "https://raw.githubusercontent.com/Ate329/top-us-stock-tickers/main/tickers/all.csv"
-        r = requests.get(url, headers=get_headers(), timeout=15)
-        df = pd.read_csv(StringIO(r.text))
-        col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
-        if col:
-            nasdaq = df[col[0]].dropna().tolist()[:500]
-            nasdaq = [str(s).strip() for s in nasdaq if str(s).strip()]
-            semboller.extend(nasdaq)
-            print(f"NASDAQ top 500: {len(nasdaq)} hisse")
-    except Exception as e:
-        print(f"NASDAQ hatası: {e}")
 
     semboller = list(dict.fromkeys([
         s for s in semboller
@@ -99,87 +76,40 @@ def abd_listesi_cek():
 def telegram_gonder(mesaj):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        requests.post(
-            url,
-            json={"chat_id": CHAT_ID, "text": mesaj, "parse_mode": "HTML"},
-            timeout=10
-        )
+        requests.post(url, json={"chat_id": CHAT_ID, "text": mesaj, "parse_mode": "HTML"}, timeout=10)
     except Exception as e:
         print(f"Telegram hatası: {e}")
 
 # ─────────────────────────────────────────────
-# YAHOO FİNANCE VERİ ÇEK
+# TVDATAFEEd VERİ ÇEK — NASDAQ önce, NYSE sonra
 # ─────────────────────────────────────────────
-def yahoo_veri_cek(ticker, deneme=0):
-    try:
-        session = requests.Session()
-        session.headers.update(get_headers())
+def tv_veri_cek(sembol, deneme=0):
+    for borsa in ["NASDAQ", "NYSE", "AMEX"]:
         try:
-            session.get("https://fc.yahoo.com", timeout=5)
+            df = tv.get_hist(
+                symbol=sembol,
+                exchange=borsa,
+                interval=Interval.in_4_hour,
+                n_bars=N_BARS,
+            )
+            if df is not None and len(df) >= 50:
+                df = df.rename(columns={
+                    "open": "Open", "high": "High",
+                    "low": "Low", "close": "Close", "volume": "Volume"
+                })
+                df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+                if len(df) >= 50:
+                    return df
         except:
-            pass
-        try:
-            crumb = session.get(
-                "https://query1.finance.yahoo.com/v1/test/getcrumb",
-                timeout=5
-            ).text
-        except:
-            crumb = ""
-
-        end   = int(time.time())
-        start = end - 60 * 24 * 3600
-
-        url = (
-            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-            f"?period1={start}&period2={end}&interval=1h&crumb={crumb}"
-        )
-        r = session.get(url, timeout=15)
-        if r.status_code != 200:
-            return None
-
-        data  = r.json()
-        chart = data.get("chart", {}).get("result", [])
-        if not chart:
-            return None
-
-        timestamps = chart[0].get("timestamp", [])
-        ohlcv      = chart[0]["indicators"]["quote"][0]
-
-        df = pd.DataFrame({
-            "Open":   ohlcv.get("open", []),
-            "High":   ohlcv.get("high", []),
-            "Low":    ohlcv.get("low", []),
-            "Close":  ohlcv.get("close", []),
-            "Volume": ohlcv.get("volume", []),
-        }, index=pd.to_datetime(timestamps, unit="s", utc=True))
-
-        df = df.dropna()
-        if len(df) < 50:
-            return None
-
-        df = df.resample("4h").agg({
-            "Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"
-        }).dropna()
-
-        if len(df) < 50:
-            return None
-
-        return df
-
-    except Exception as e:
-        if deneme < RETRY:
-            time.sleep(3 * (deneme + 1))
-            return yahoo_veri_cek(ticker, deneme + 1)
-        return None
+            continue
+    return None
 
 # ─────────────────────────────────────────────
 # HACİM FİLTRESİ
 # ─────────────────────────────────────────────
 def hacim_gecti(df):
     try:
-        son3gun   = df.tail(18)
-        ort_hacim = son3gun["Volume"].mean()
-        return ort_hacim >= ABD_HACIM_MIN
+        return df.tail(18)["Volume"].mean() >= ABD_HACIM_MIN
     except:
         return False
 
@@ -247,7 +177,7 @@ def crossover_bars_ago(a, b):
 # ─────────────────────────────────────────────
 def hisse_tara(ticker):
     try:
-        df = yahoo_veri_cek(ticker)
+        df = tv_veri_cek(ticker)
         if df is None:
             return False
         if not hacim_gecti(df):
@@ -257,7 +187,6 @@ def hisse_tara(ticker):
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
-        # 1) FISHER — yukarı kesişim + ters kırılım yok
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2)
         if fisher_bars is None or fish1[-1 - fisher_bars] >= 0:
@@ -266,7 +195,6 @@ def hisse_tara(ticker):
             if fish1[-1 - i] < fish2[-1 - i]:
                 return False
 
-        # 2) ALMA 4/9 — yukarı kesişim + ters kırılım yok
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9)
@@ -276,7 +204,6 @@ def hisse_tara(ticker):
             if alma4[-1 - i] < alma9[-1 - i]:
                 return False
 
-        # 3) RSI — yukarı kesişim + ters kırılım yok
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma)
@@ -286,7 +213,6 @@ def hisse_tara(ticker):
             if rsi_vals[-1 - i] < rsi_sma[-1 - i]:
                 return False
 
-        # 4) NW ENVELOPE
         mid, lower, upper = nw_envelope(close, h=8.0, mult=3.0)
         zone = lower + (mid - lower) * NW_ZONE
         if close[-1] > zone or close[-1] < lower:
@@ -320,9 +246,8 @@ def tara(hisse_listesi):
         for h in bulunanlar:
             mesaj += f"  • {h}\n"
         mesaj += "\n✅ Fisher + ALMA 4/9 + RSI ≤40 + NW %10\n"
-        mesaj += f"📋 Hacim: ≥10M USD (3 gün ort.)"
+        mesaj += "📡 Veri: TradingView"
         telegram_gonder(mesaj)
-        print(f"\n✅ Telegram gönderildi: {bulunanlar}")
     else:
         print("\nSinyal bulunamadı.")
 
@@ -331,24 +256,22 @@ def tara(hisse_listesi):
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     abd_listesi = abd_listesi_cek()
-    toplam  = len(abd_listesi)
-    sure_dk = int(toplam * (BEKLEME_MIN + BEKLEME_MAX) / 2 / 60)
 
     telegram_gonder(
         f"🤖 <b>Bot 2 — ABD Borsası Başlatıldı!</b>\n\n"
-        f"📋 Kaynak: S&P 500 + NYSE + NASDAQ top 500\n"
-        f"🔢 Toplam hisse: {toplam}\n"
-        f"⏱ Tarama süresi: ~{sure_dk} dakika\n\n"
+        f"📋 Kaynak: S&P 500 + NYSE\n"
+        f"🔢 Toplam hisse: {len(abd_listesi)}\n"
+        f"📡 Veri: TradingView (tvDatafeed)\n\n"
         f"<b>Filtreler:</b>\n"
-        f"• Hacim ≥ 10M USD (son 3 gün)\n"
+        f"• Hacim ≥ 10M USD\n"
         f"• Fisher crossover (2 mum, 0 altı)\n"
         f"• ALMA 4/9 crossover (2 mum)\n"
         f"• RSI ≤ 40\n"
-        f"• NW Envelope alt %10\n\n"
-        f"📅 Liste her turda otomatik güncellenir"
+        f"• NW Envelope alt %10"
     )
 
     while True:
         abd_listesi = abd_listesi_cek()
         tara(abd_listesi)
         print("\nYeni tur başlıyor...\n")
+        time.sleep(60)
