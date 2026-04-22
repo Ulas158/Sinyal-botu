@@ -5,7 +5,7 @@ import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from io import StringIO
+from tvDatafeed import TvDatafeed, Interval
 
 # ─────────────────────────────────────────────
 # AYARLAR
@@ -13,77 +13,46 @@ from io import StringIO
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID          = os.environ.get("CHAT_ID", "7116490869")
 GITHUB_USER      = os.environ.get("GITHUB_USER", "Ulas158")
+TV_USERNAME      = os.environ.get("TV_USERNAME", "")   # TradingView kullanıcı adı (opsiyonel)
+TV_PASSWORD      = os.environ.get("TV_PASSWORD", "")   # TradingView şifre (opsiyonel)
 MAX_BARS         = 2
 RSI_MAX          = 40.0
 NW_ZONE          = 0.10
-RETRY            = 3
-BEKLEME_MIN      = 3.0
-BEKLEME_MAX      = 6.0
+BEKLEME_MIN      = 0.5
+BEKLEME_MAX      = 1.5
 BIST_HACIM_MIN   = 20_000_000
 KRIPTO_HACIM_MIN = 10_000_000
+N_BARS           = 500   # Kaç mum çekilsin
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-]
-
-def get_headers():
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Cache-Control": "max-age=0",
-    }
+# tvDatafeed bağlantısı
+try:
+    if TV_USERNAME and TV_PASSWORD:
+        tv = TvDatafeed(TV_USERNAME, TV_PASSWORD)
+        print("TradingView hesabıyla bağlandı ✓")
+    else:
+        tv = TvDatafeed()
+        print("TradingView anonim bağlandı ✓")
+except Exception as e:
+    print(f"tvDatafeed bağlantı hatası: {e}")
+    tv = TvDatafeed()
 
 # ─────────────────────────────────────────────
 # BIST — GitHub bist.txt
 # ─────────────────────────────────────────────
 BIST_YEDEK = [
-    "AEFES","AGESA","AGHOL","AHGAZ","AKENR","AKBNK","AKFEN","AKGRT","AKSA","AKSEN",
-    "ALARK","ALBRK","ALGYO","ALKIM","ALTNY","ANACM","ANELE","ANHYT","ANSGR","ARCLK",
-    "ARSAN","ASELS","ASTOR","AYEN","AYGAZ","BAGFS","BALSU","BERA","BIOEN","BIZIM",
-    "BJKAS","BNTAS","BOSSA","BRISA","BRKSN","BRSAN","BSOKE","BTCIM","BUCIM","BURCE",
-    "BURVA","BRYAT","CANTE","CCOLA","CELHA","CEMAS","CEMTS","CIMSA","CLEBI","COKAS",
-    "CRFSA","CUSAN","CVKMD","CWENE","DAGI","DAPGM","DARDL","DENGE","DESA","DEVA",
-    "DITAS","DMSAS","DOAS","DOBUR","DOGUB","DOHOL","DOKTA","DSTKF","DYOBY","DZGYO",
-    "ECILC","ECZYT","EDIP","EFOR","EGEEN","EGEPO","EGGUB","EGPRO","EKGYO","ENJSA",
-    "ENKAI","ENERY","EPLAS","ERBOS","EREGL","ERSU","ESCAR","ESEN","ETILR","EUHOL",
-    "EUPWR","EUREN","EUYO","FADE","FENER","FONET","FRIGO","FROTO","GARAN","GARFA",
-    "GEDZA","GENIL","GEREL","GESAN","GLYHO","GLRMK","GMTAS","GOODY","GOZDE","GRSEL",
-    "GRTHO","GSDHO","GSRAY","GUBRF","GWIND","HALKB","HATEK","HEDEF","HEKTS","HLGYO",
-    "HOROZ","HUBVC","HUNER","HURGZ","ICBCT","INDES","INVEO","IPEKE","ISATR","ISBIR",
-    "ISFIN","ISGYO","ISKPL","ISCTR","ISMEN","ISYAT","ITTFK","IZFAS","IZMDC","IZENR",
-    "JANTS","KAPLM","KARTN","KARSN","KATMR","KAYSE","KCHOL","KENT","KERVT","KGYO",
-    "KLGYO","KLKIM","KLRHO","KMPUR","KOCMT","KONYA","KONTR","KOPOL","KOZAL","KRDMD",
-    "KRTEK","KTLEV","KUYAS","KUTPO","LIDER","LOGO","MAALT","MAGEN","MARTI","MAVI",
-    "MAZGL","MEDTR","MEGAP","MERCN","MERIT","MERKO","METRO","MGROS","MIATK","MIPAZ",
-    "MNDRS","MOBTL","MOGAN","MPARK","MSGYO","MTRKS","NATEN","NETAS","NIBAS","NTTUR",
-    "NUHCM","OBASE","OBAMS","ODAS","ONCSM","ORCAY","ORGE","OSMEN","OSTIM","OTKAR",
-    "OTTO","OYAKC","OYAYO","OYLUM","OZGYO","OZKGY","PAGYO","PAHOL","PAMEL","PAPIL",
-    "PARSN","PASEU","PATEK","PEGYO","PEKMT","PENGD","PENTA","PETKM","PETUN","PGSUS",
-    "PINSU","PKART","PLTUR","POLHO","PRZMA","PSGYO","PTOFS","QUAGR","RALYH","RAYSG",
-    "REEDR","RNPOL","RODRG","ROYAL","RUBNS","RYGYO","SAFKR","SAHOL","SANEL","SANFM",
-    "SANKO","SARKY","SASA","SAYAS","SEGYO","SEKUR","SELEC","SELGD","SELVA","SILVR",
-    "SISE","SKBNK","SNGYO","SNPAM","SODSN","SOKM","SSTEK","SUWEN","TABGD","TATGD",
-    "TATEN","TAVHL","TBORG","TCELL","TEKTU","TERA","TGSAS","THYAO","TKFEN","TKNSA",
-    "TLMAN","TMPOL","TOASO","TRALT","TRCAS","TRENJ","TRMET","TRILC","TSGYO","TSKB",
-    "TTKOM","TTRAK","TUCLK","TUKAS","TUPRS","TUREX","TURSG","UFUK","ULUUN","UMPAS",
-    "ULKER","UNLU","USAK","VAKBN","VANGD","VBTYZ","VERUS","VESTL","VKFYO","VKGYO",
-    "YAPRK","YATAS","YEOTK","YESIL","YGYO","YKBNK","YUNSA","YYAPI","ZEDUR","ZOREN",
+    "THYAO","ASELS","EREGL","KCHOL","SASA","TCELL","GARAN","AKBNK","YKBNK",
+    "ARCLK","FROTO","TOASO","SAHOL","KOZAL","TUPRS","PETKM","VESTL","ENKAI",
+    "EKGYO","ISCTR","HALKB","VAKBN","TKFEN","TSKB","LOGO","MGROS","TTKOM",
+    "TAVHL","CCOLA","DOAS","SISE","KCHOL","BIMAS","ULKER","AEFES","AKSA",
 ]
 
 def bist_listesi_cek():
     try:
-        print("GitHub'dan bist.txt çekiliyor...")
         url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/bist.txt"
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
             semboller = [
-                line.strip().upper() + ".IS"
+                line.strip().upper()
                 for line in r.text.splitlines()
                 if line.strip() and not line.startswith("#")
             ]
@@ -94,33 +63,24 @@ def bist_listesi_cek():
         raise Exception(f"HTTP {r.status_code}")
     except Exception as e:
         print(f"bist.txt hatası: {e} — yedek liste")
-        return [s + ".IS" for s in BIST_YEDEK]
+        return BIST_YEDEK
 
 # ─────────────────────────────────────────────
 # KRİPTO — GitHub kripto.txt
 # ─────────────────────────────────────────────
 KRIPTO_YEDEK = [
-    "BTC-USD","ETH-USD","BNB-USD","XRP-USD","SOL-USD","ADA-USD","DOGE-USD",
-    "TRX-USD","TON-USD","LINK-USD","AVAX-USD","SHIB-USD","DOT-USD","LTC-USD",
-    "BCH-USD","NEAR-USD","UNI-USD","APT-USD","ICP-USD","ETC-USD","XLM-USD",
-    "FET-USD","RNDR-USD","VET-USD","ATOM-USD","IMX-USD","AAVE-USD","OP-USD",
-    "ARB-USD","MKR-USD","HBAR-USD","FIL-USD","GRT-USD","INJ-USD","SAND-USD",
-    "MANA-USD","THETA-USD","AXS-USD","EGLD-USD","EOS-USD","FLOW-USD","ALGO-USD",
-    "XMR-USD","RUNE-USD","DASH-USD","ZEC-USD","COMP-USD","SNX-USD","YFI-USD",
-    "SUSHI-USD","CRV-USD","1INCH-USD","CAKE-USD","LRC-USD","BAT-USD","ENJ-USD",
-    "CHZ-USD","DYDX-USD","STX-USD","XTZ-USD","ROSE-USD","MASK-USD","OCEAN-USD",
-    "WLD-USD","JASMY-USD","LDO-USD","APE-USD","SUI-USD","SEI-USD","TIA-USD",
-    "PYTH-USD","WIF-USD","BONK-USD","PEPE-USD","FLOKI-USD","ORDI-USD","LUNC-USD",
+    "BTC","ETH","BNB","XRP","SOL","ADA","DOGE","TRX","TON","LINK",
+    "AVAX","DOT","LTC","BCH","NEAR","UNI","APT","ETC","XLM","ATOM",
+    "AAVE","OP","ARB","FIL","INJ","SAND","AXS","ALGO","RUNE","DASH",
 ]
 
 def kripto_listesi_cek():
     try:
-        print("GitHub'dan kripto.txt çekiliyor...")
         url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/kripto.txt"
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
             semboller = [
-                line.strip().upper() + "-USD"
+                line.strip().upper()
                 for line in r.text.splitlines()
                 if line.strip() and not line.startswith("#")
             ]
@@ -148,82 +108,48 @@ def telegram_gonder(mesaj):
         print(f"Telegram hatası: {e}")
 
 # ─────────────────────────────────────────────
-# YAHOO FİNANCE VERİ ÇEK
+# TVDATAFEEd VERİ ÇEK
 # ─────────────────────────────────────────────
-def yahoo_veri_cek(ticker, deneme=0):
+def tv_veri_cek(sembol, borsa, deneme=0):
     try:
-        session = requests.Session()
-        session.headers.update(get_headers())
-        try:
-            session.get("https://fc.yahoo.com", timeout=5)
-        except:
-            pass
-        try:
-            crumb = session.get(
-                "https://query1.finance.yahoo.com/v1/test/getcrumb",
-                timeout=5
-            ).text
-        except:
-            crumb = ""
-
-        end   = int(time.time())
-        start = end - 60 * 24 * 3600
-
-        url = (
-            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-            f"?period1={start}&period2={end}&interval=1h&crumb={crumb}"
+        df = tv.get_hist(
+            symbol=sembol,
+            exchange=borsa,
+            interval=Interval.in_4_hour,
+            n_bars=N_BARS,
         )
-        r = session.get(url, timeout=15)
-        if r.status_code != 200:
+        if df is None or len(df) < 50:
             return None
 
-        data  = r.json()
-        chart = data.get("chart", {}).get("result", [])
-        if not chart:
-            return None
+        # Kolon isimlerini düzelt
+        df = df.rename(columns={
+            "open": "Open", "high": "High",
+            "low": "Low", "close": "Close", "volume": "Volume"
+        })
 
-        timestamps = chart[0].get("timestamp", [])
-        ohlcv      = chart[0]["indicators"]["quote"][0]
-
-        df = pd.DataFrame({
-            "Open":   ohlcv.get("open", []),
-            "High":   ohlcv.get("high", []),
-            "Low":    ohlcv.get("low", []),
-            "Close":  ohlcv.get("close", []),
-            "Volume": ohlcv.get("volume", []),
-        }, index=pd.to_datetime(timestamps, unit="s", utc=True))
-
-        df = df.dropna()
-        if len(df) < 50:
-            return None
-
-        df = df.resample("4h").agg({
-            "Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"
-        }).dropna()
-
+        df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
         if len(df) < 50:
             return None
 
         return df
 
     except Exception as e:
-        if deneme < RETRY:
-            time.sleep(3 * (deneme + 1))
-            return yahoo_veri_cek(ticker, deneme + 1)
+        if deneme < 2:
+            time.sleep(2)
+            return tv_veri_cek(sembol, borsa, deneme + 1)
         return None
 
 # ─────────────────────────────────────────────
 # HACİM FİLTRESİ
 # ─────────────────────────────────────────────
-def hacim_gecti(ticker, df):
+def hacim_gecti(df, tip):
     try:
-        son3gun   = df.tail(18)
-        ort_hacim = son3gun["Volume"].mean()
-        if ticker.endswith(".IS"):
+        ort_hacim = df.tail(18)["Volume"].mean()
+        if tip == "bist":
             return ort_hacim >= BIST_HACIM_MIN
-        elif ticker.endswith("-USD"):
+        elif tip == "kripto":
             return ort_hacim >= KRIPTO_HACIM_MIN
-        return False
+        return True
     except:
         return False
 
@@ -289,19 +215,19 @@ def crossover_bars_ago(a, b):
 # ─────────────────────────────────────────────
 # HİSSE TARA
 # ─────────────────────────────────────────────
-def hisse_tara(ticker):
+def hisse_tara(sembol, borsa, tip):
     try:
-        df = yahoo_veri_cek(ticker)
+        df = tv_veri_cek(sembol, borsa)
         if df is None:
             return False
-        if not hacim_gecti(ticker, df):
+        if not hacim_gecti(df, tip):
             return False
 
         close = df["Close"].values.astype(float)
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
-        # 1) FISHER — yukarı kesişim + ters kırılım yok
+        # 1) FISHER
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2)
         if fisher_bars is None or fish1[-1 - fisher_bars] >= 0:
@@ -310,7 +236,7 @@ def hisse_tara(ticker):
             if fish1[-1 - i] < fish2[-1 - i]:
                 return False
 
-        # 2) ALMA 4/9 — yukarı kesişim + ters kırılım yok
+        # 2) ALMA 4/9
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9)
@@ -320,7 +246,7 @@ def hisse_tara(ticker):
             if alma4[-1 - i] < alma9[-1 - i]:
                 return False
 
-        # 3) RSI — yukarı kesişim + ters kırılım yok
+        # 3) RSI
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma)
@@ -339,29 +265,40 @@ def hisse_tara(ticker):
         return True
 
     except Exception as e:
-        print(f"{ticker} hata: {e}")
+        print(f"{sembol} hata: {e}")
         return False
 
 # ─────────────────────────────────────────────
 # ANA TARAMA
 # ─────────────────────────────────────────────
-def tara(hisse_listesi):
-    print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(hisse_listesi)} sembol")
+def tara(bist_listesi, kripto_listesi):
+    toplam = len(bist_listesi) + len(kripto_listesi)
+    print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {toplam} sembol")
     bulunanlar_bist   = []
     bulunanlar_kripto = []
 
-    for i, ticker in enumerate(hisse_listesi):
-        print(f"  [{i+1}/{len(hisse_listesi)}] {ticker}", end=" ", flush=True)
-        if hisse_tara(ticker):
+    # BIST
+    for i, sembol in enumerate(bist_listesi):
+        print(f"  [BIST {i+1}/{len(bist_listesi)}] {sembol}", end=" ", flush=True)
+        if hisse_tara(sembol, "BIST", "bist"):
             print("✓ SİNYAL")
-            if ticker.endswith(".IS"):
-                bulunanlar_bist.append(ticker.replace(".IS",""))
-            elif ticker.endswith("-USD"):
-                bulunanlar_kripto.append(ticker.replace("-USD",""))
+            bulunanlar_bist.append(sembol)
         else:
             print("✗")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
+    # KRİPTO (Binance'de USDT parite)
+    for i, sembol in enumerate(kripto_listesi):
+        binance_sembol = sembol + "USDT"
+        print(f"  [KRİPTO {i+1}/{len(kripto_listesi)}] {binance_sembol}", end=" ", flush=True)
+        if hisse_tara(binance_sembol, "BINANCE", "kripto"):
+            print("✓ SİNYAL")
+            bulunanlar_kripto.append(sembol)
+        else:
+            print("✗")
+        time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
+
+    # Telegram
     if bulunanlar_bist:
         mesaj = "🇹🇷 <b>BIST AL Sinyali!</b>\n\n"
         mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
@@ -387,17 +324,12 @@ def tara(hisse_listesi):
 if __name__ == "__main__":
     bist_listesi   = bist_listesi_cek()
     kripto_listesi = kripto_listesi_cek()
-    tum_liste      = list(dict.fromkeys(bist_listesi + kripto_listesi))
-
-    toplam  = len(tum_liste)
-    sure_dk = int(toplam * (BEKLEME_MIN + BEKLEME_MAX) / 2 / 60)
 
     telegram_gonder(
         f"🤖 <b>Bot 1 — BIST + Kripto Başlatıldı!</b>\n\n"
         f"🇹🇷 BIST: {len(bist_listesi)} hisse\n"
         f"🪙 Kripto: {len(kripto_listesi)} coin\n"
-        f"🔢 Toplam: {toplam} sembol\n"
-        f"⏱ Tarama süresi: ~{sure_dk} dakika\n\n"
+        f"📡 Veri: TradingView (tvDatafeed)\n\n"
         f"<b>Filtreler:</b>\n"
         f"• BIST Hacim ≥ 20M TL\n"
         f"• Kripto Hacim ≥ 10M USD\n"
@@ -410,6 +342,6 @@ if __name__ == "__main__":
     while True:
         bist_listesi   = bist_listesi_cek()
         kripto_listesi = kripto_listesi_cek()
-        tum_liste      = list(dict.fromkeys(bist_listesi + kripto_listesi))
-        tara(tum_liste)
+        tara(bist_listesi, kripto_listesi)
         print("\nYeni tur başlıyor...\n")
+        time.sleep(60)
