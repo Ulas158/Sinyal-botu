@@ -1,6 +1,3 @@
-# Almanya Frankfurt Borsası Hisse Listesi
-# Yeni hisse eklemek için buraya yaz ve GitHub'a yükle
-
 SAP
 AIR
 ADS
@@ -108,7 +105,6 @@ KION
 KD8
 JUN3
 IVU
-ISRA
 HHFA
 HDD
 HAB
@@ -134,9 +130,6 @@ AMO
 ADV
 ACX
 ACT
-TUI
 AAD
-WDI
 LEO
 KWS
-EVO
