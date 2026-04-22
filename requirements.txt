@@ -3,5 +3,6 @@ numpy==1.26.4
 requests==2.32.3
 lxml==5.2.1
 beautifulsoup4==4.12.3
-plotly==5.22.0
 finance-datareader==0.9.93
+websocket-client==1.9.0
+tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git
