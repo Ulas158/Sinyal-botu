@@ -18,8 +18,8 @@ TV_PASSWORD    = os.environ.get("TV_PASSWORD", "")
 MAX_BARS       = 2
 RSI_MAX        = 40.0
 NW_ZONE        = 0.10
-BEKLEME_MIN    = 0.5
-BEKLEME_MAX    = 1.5
+BEKLEME_MIN    = 1.5
+BEKLEME_MAX    = 3.0
 ABD_HACIM_MIN  = 10_000_000
 N_BARS         = 500
 
