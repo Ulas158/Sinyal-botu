@@ -5,7 +5,6 @@ import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from io import StringIO
 from tvDatafeed import TvDatafeed, Interval
 
 # ─────────────────────────────────────────────
@@ -36,39 +35,33 @@ except Exception as e:
     tv = TvDatafeed()
 
 # ─────────────────────────────────────────────
-# ABD LİSTESİ — S&P500 + NYSE + NASDAQ
+# ABD LİSTESİ — GitHub abd.txt
 # ─────────────────────────────────────────────
+ABD_YEDEK = [
+    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","MA",
+    "JNJ","XOM","WMT","PG","HD","BAC","ABBV","MRK","CVX","PFE",
+    "NFLX","ADBE","CRM","AMD","INTC","QCOM","TXN","AVGO","ORCL","GE",
+    "CAT","BA","GS","MS","C","WFC","AXP","BLK","UNH","LLY",
+]
+
 def abd_listesi_cek():
-    semboller = []
     try:
-        url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
-        r = requests.get(url, timeout=15)
-        df = pd.read_csv(StringIO(r.text))
-        sp500 = [s.replace(".", "-") for s in df["Symbol"].dropna().tolist()]
-        semboller.extend(sp500)
-        print(f"S&P 500: {len(sp500)} hisse")
+        url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/abd.txt"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            semboller = [
+                line.strip().upper()
+                for line in r.text.splitlines()
+                if line.strip() and not line.startswith("#")
+            ]
+            semboller = list(dict.fromkeys(semboller))
+            if len(semboller) >= 20:
+                print(f"ABD: {len(semboller)} hisse")
+                return semboller
+        raise Exception(f"HTTP {r.status_code}")
     except Exception as e:
-        print(f"S&P 500 hatası: {e}")
-
-    try:
-        url = "https://raw.githubusercontent.com/datasets/nyse-listings/master/data/nyse-listed.csv"
-        r = requests.get(url, timeout=15)
-        df = pd.read_csv(StringIO(r.text))
-        col = [c for c in df.columns if "symbol" in c.lower() or "ticker" in c.lower()]
-        if col:
-            nyse = df[col[0]].dropna().tolist()[:2000]
-            nyse = [str(s).strip() for s in nyse if str(s).strip() and "." not in str(s) and "$" not in str(s)]
-            semboller.extend(nyse)
-            print(f"NYSE: {len(nyse)} hisse")
-    except Exception as e:
-        print(f"NYSE hatası: {e}")
-
-    semboller = list(dict.fromkeys([
-        s for s in semboller
-        if s and len(s) <= 6 and s.replace("-", "").isalpha()
-    ]))
-    print(f"ABD toplam: {len(semboller)} hisse")
-    return semboller
+        print(f"abd.txt hatası: {e} — yedek liste")
+        return ABD_YEDEK
 
 # ─────────────────────────────────────────────
 # TELEGRAM
@@ -81,7 +74,7 @@ def telegram_gonder(mesaj):
         print(f"Telegram hatası: {e}")
 
 # ─────────────────────────────────────────────
-# TVDATAFEEd VERİ ÇEK — NASDAQ önce, NYSE sonra
+# TVDATAFEEd VERİ ÇEK
 # ─────────────────────────────────────────────
 def tv_veri_cek(sembol, deneme=0):
     for borsa in ["NASDAQ", "NYSE", "AMEX"]:
@@ -259,7 +252,6 @@ if __name__ == "__main__":
 
     telegram_gonder(
         f"🤖 <b>Bot 2 — ABD Borsası Başlatıldı!</b>\n\n"
-        f"📋 Kaynak: S&P 500 + NYSE\n"
         f"🔢 Toplam hisse: {len(abd_listesi)}\n"
         f"📡 Veri: TradingView (tvDatafeed)\n\n"
         f"<b>Filtreler:</b>\n"
