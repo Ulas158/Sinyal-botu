@@ -37,81 +37,11 @@ except Exception as e:
     tv = TvDatafeed()
 
 # ─────────────────────────────────────────────
-# JAPONYA LİSTESİ
+# LİSTE OKUYUCU — GitHub txt dosyalarından
 # ─────────────────────────────────────────────
-JAPONYA_LISTE = [
-    "1301","1332","1333","1605","1721","1801","1802","1803","1808","1812",
-    "1925","1928","1963","2002","2269","2282","2413","2432","2501","2502",
-    "2503","2531","2579","2768","2801","2802","2871","2914","3086","3099",
-    "3197","3289","3382","3402","3405","3407","3436","3659","3861","3863",
-    "3865","3866","3891","4004","4005","4021","4042","4043","4061","4063",
-    "4183","4188","4202","4203","4204","4205","4208","4272","4307","4324",
-    "4385","4452","4502","4503","4506","4507","4519","4523","4528","4543",
-    "4568","4578","4631","4642","4661","4689","4704","4751","4755","4901",
-    "4902","4911","5001","5002","5019","5020","5101","5108","5201","5202",
-    "5214","5233","5301","5332","5333","5334","5401","5406","5411","5413",
-    "5631","5706","5707","5711","5713","5714","5715","5801","5802","5803",
-    "6301","6302","6305","6326","6361","6367","6471","6472","6473","6501",
-    "6503","6504","6506","6645","6674","6702","6703","6724","6752","6758",
-    "6762","6770","6841","6857","6861","6902","6952","6954","6971","6976",
-    "6981","7003","7004","7011","7012","7013","7182","7201","7202","7203",
-    "7205","7211","7261","7267","7269","7270","7272","7731","7733","7735",
-    "7741","7751","7752","7762","7832","7911","7912","7951","7974","8001",
-    "8002","8003","8015","8031","8035","8053","8058","8113","8174","8253",
-    "8267","8303","8304","8306","8308","8309","8316","8331","8354","8355",
-    "8377","8381","8385","8411","8591","8601","8604","8630","8697","8725",
-    "8750","8766","8795","8801","8802","8803","8830","9001","9005","9007",
-    "9008","9009","9020","9021","9022","9062","9064","9101","9104","9107",
-    "9202","9301","9432","9433","9434","9501","9502","9503","9531","9532",
-    "9602","9613","9706","9735","9766","9983","9984",
-]
-
-def japonya_listesi_cek():
+def github_liste_cek(dosya_adi, yedek_liste):
     try:
-        import FinanceDataReader as fdr
-        df = fdr.StockListing("TSE")
-        semboller = [str(s).strip() for s in df["Symbol"].dropna().tolist() if str(s).strip()]
-        semboller = list(dict.fromkeys(semboller))[:1500]
-        if len(semboller) >= 100:
-            print(f"Japonya (TSE): {len(semboller)} hisse")
-            return semboller
-    except Exception as e:
-        print(f"TSE hatası: {e}")
-    print(f"Japonya sabit liste: {len(JAPONYA_LISTE)} hisse")
-    return JAPONYA_LISTE
-
-# ─────────────────────────────────────────────
-# HONG KONG LİSTESİ
-# ─────────────────────────────────────────────
-HONGKONG_LISTE = [
-    "0001","0002","0003","0005","0006","0011","0012","0016","0017","0019",
-    "0023","0027","0066","0083","0101","0135","0144","0151","0175","0241",
-    "0267","0285","0288","0291","0358","0371","0386","0388","0522","0570",
-    "0656","0659","0669","0688","0700","0762","0823","0836","0857","0868",
-    "0883","0914","0939","0941","0960","0992","1024","1038","1044","1093",
-    "1109","1113","1171","1177","1199","1288","1299","1308","1357","1378",
-    "1398","1810","1876","1918","1928","1997","2007","2018","2020","2313",
-    "2318","2319","2382","2388","2628","2800","3328","3618","3690","3988",
-    "6098","6618","6837","6862","9888","9999","0004","0007","0008","0009",
-    "0010","0013","0014","0015","0018","0020","0021","0022","0024","0025",
-]
-
-def hongkong_listesi_cek():
-    print(f"Hong Kong sabit liste: {len(HONGKONG_LISTE)} hisse")
-    return HONGKONG_LISTE
-
-# ─────────────────────────────────────────────
-# ALMANYA LİSTESİ — GitHub almanya.txt
-# ─────────────────────────────────────────────
-ALMANYA_YEDEK = [
-    "SAP","SIE","ALV","BMW","MBG","BAS","BAYN","DTE","RWE","DBK",
-    "ADS","MUV2","IFX","VOW3","FRE","HEN3","MRK","PUM","ZAL","DPW",
-    "RHM","AIR","QIA","SHL","VNA","1COV","BNR","CON","P911","DHER",
-]
-
-def almanya_listesi_cek():
-    try:
-        url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/almanya.txt"
+        url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/{dosya_adi}"
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
             semboller = [
@@ -120,12 +50,35 @@ def almanya_listesi_cek():
                 if line.strip() and not line.startswith("#")
             ]
             semboller = list(dict.fromkeys(semboller))
-            if len(semboller) >= 20:
-                print(f"Almanya: {len(semboller)} hisse")
+            if len(semboller) >= 10:
+                print(f"{dosya_adi}: {len(semboller)} hisse")
                 return semboller
+        raise Exception(f"HTTP {r.status_code}")
     except Exception as e:
-        print(f"almanya.txt hatası: {e}")
-    return ALMANYA_YEDEK
+        print(f"{dosya_adi} hatası: {e} — yedek liste kullanılıyor")
+        return yedek_liste
+
+# ─────────────────────────────────────────────
+# YEDEK LİSTELER
+# ─────────────────────────────────────────────
+JAPONYA_YEDEK = [
+    "7203","7267","7269","6758","6954","6752","6702","6501","6861","6857",
+    "4519","4502","4503","8306","8316","8411","9432","9433","9984","9983",
+    "9022","9021","5401","5406","3402","3382","2914","2501","2502","2503",
+    "1332","1333","7011","7012","7013","7731","7733","7751","7974","8801",
+]
+
+HONGKONG_YEDEK = [
+    "0700","0941","0005","1299","2318","0388","1398","3988","0939","0883",
+    "2628","0386","0857","0016","0011","0001","0002","0003","0006","0012",
+    "0017","0019","0023","0027","0066","0083","0101","0135","0144","0175",
+    "0267","0285","0288","0291","0358","0386","0388","0522","0700","0762",
+]
+
+ALMANYA_YEDEK = [
+    "SAP","SIE","ALV","BMW","MBG","BAS","BAYN","DTE","RWE","DBK",
+    "ADS","MUV2","IFX","VOW3","FRE","HEN3","MRK","PUM","ZAL","DPW",
+]
 
 # ─────────────────────────────────────────────
 # TELEGRAM
@@ -150,17 +103,14 @@ def tv_veri_cek(sembol, borsa, deneme=0):
         )
         if df is None or len(df) < 50:
             return None
-
         df = df.rename(columns={
             "open": "Open", "high": "High",
             "low": "Low", "close": "Close", "volume": "Volume"
         })
         df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
-
         if len(df) < 50:
             return None
         return df
-
     except Exception as e:
         if deneme < 2:
             time.sleep(2)
@@ -359,9 +309,9 @@ def tara(jp_listesi, hk_listesi, de_listesi):
 # BAŞLAT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    jp_listesi = japonya_listesi_cek()
-    hk_listesi = hongkong_listesi_cek()
-    de_listesi = almanya_listesi_cek()
+    jp_listesi = github_liste_cek("japonya.txt", JAPONYA_YEDEK)
+    hk_listesi = github_liste_cek("hongkong.txt", HONGKONG_YEDEK)
+    de_listesi = github_liste_cek("almanya.txt",  ALMANYA_YEDEK)
 
     telegram_gonder(
         f"🤖 <b>Bot 3 — Asya/Avrupa Başlatıldı!</b>\n\n"
@@ -380,9 +330,9 @@ if __name__ == "__main__":
     )
 
     while True:
-        jp_listesi = japonya_listesi_cek()
-        hk_listesi = hongkong_listesi_cek()
-        de_listesi = almanya_listesi_cek()
+        jp_listesi = github_liste_cek("japonya.txt", JAPONYA_YEDEK)
+        hk_listesi = github_liste_cek("hongkong.txt", HONGKONG_YEDEK)
+        de_listesi = github_liste_cek("almanya.txt",  ALMANYA_YEDEK)
         tara(jp_listesi, hk_listesi, de_listesi)
         print("\nYeni tur başlıyor...\n")
         time.sleep(60)
