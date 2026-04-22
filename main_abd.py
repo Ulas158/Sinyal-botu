@@ -49,19 +49,33 @@ def abd_listesi_cek():
         url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/abd.txt"
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
-            semboller = [
-                line.strip().upper()
-                for line in r.text.splitlines()
-                if line.strip() and not line.startswith("#")
-            ]
-            semboller = list(dict.fromkeys(semboller))
-            if len(semboller) >= 20:
-                print(f"ABD: {len(semboller)} hisse")
-                return semboller
+            sonuc = []
+            for line in r.text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if ":" in line:
+                    parca = line.split(":")
+                    sembol = parca[0].strip().upper()
+                    borsa  = parca[1].strip().upper()
+                else:
+                    sembol = line.upper()
+                    borsa  = "NASDAQ"
+                sonuc.append((sembol, borsa))
+            # Tekrar eden sembolleri çıkar
+            gorulen = set()
+            temiz = []
+            for s, b in sonuc:
+                if s not in gorulen:
+                    gorulen.add(s)
+                    temiz.append((s, b))
+            if len(temiz) >= 20:
+                print(f"ABD: {len(temiz)} hisse")
+                return temiz
         raise Exception(f"HTTP {r.status_code}")
     except Exception as e:
         print(f"abd.txt hatası: {e} — yedek liste")
-        return ABD_YEDEK
+        return [(s, "NASDAQ") for s in ABD_YEDEK]
 
 # ─────────────────────────────────────────────
 # TELEGRAM
@@ -76,25 +90,26 @@ def telegram_gonder(mesaj):
 # ─────────────────────────────────────────────
 # TVDATAFEEd VERİ ÇEK
 # ─────────────────────────────────────────────
-def tv_veri_cek(sembol, deneme=0):
-    for borsa in ["NASDAQ", "NYSE", "AMEX"]:
-        try:
-            df = tv.get_hist(
-                symbol=sembol,
-                exchange=borsa,
-                interval=Interval.in_4_hour,
-                n_bars=N_BARS,
-            )
-            if df is not None and len(df) >= 50:
-                df = df.rename(columns={
-                    "open": "Open", "high": "High",
-                    "low": "Low", "close": "Close", "volume": "Volume"
-                })
-                df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
-                if len(df) >= 50:
-                    return df
-        except:
-            continue
+def tv_veri_cek(sembol, borsa="NASDAQ", deneme=0):
+    try:
+        df = tv.get_hist(
+            symbol=sembol,
+            exchange=borsa,
+            interval=Interval.in_4_hour,
+            n_bars=N_BARS,
+        )
+        if df is not None and len(df) >= 50:
+            df = df.rename(columns={
+                "open": "Open", "high": "High",
+                "low": "Low", "close": "Close", "volume": "Volume"
+            })
+            df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+            if len(df) >= 50:
+                return df
+    except Exception as e:
+        if deneme < 1:
+            time.sleep(2)
+            return tv_veri_cek(sembol, borsa, deneme + 1)
     return None
 
 # ─────────────────────────────────────────────
@@ -168,9 +183,9 @@ def crossover_bars_ago(a, b):
 # ─────────────────────────────────────────────
 # HİSSE TARA
 # ─────────────────────────────────────────────
-def hisse_tara(ticker):
+def hisse_tara(ticker, borsa="NASDAQ"):
     try:
-        df = tv_veri_cek(ticker)
+        df = tv_veri_cek(ticker, borsa)
         if df is None:
             return False
         if not hacim_gecti(df):
@@ -224,9 +239,9 @@ def tara(hisse_listesi):
     print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(hisse_listesi)} hisse")
     bulunanlar = []
 
-    for i, ticker in enumerate(hisse_listesi):
-        print(f"  [{i+1}/{len(hisse_listesi)}] {ticker}", end=" ", flush=True)
-        if hisse_tara(ticker):
+    for i, (ticker, borsa) in enumerate(hisse_listesi):
+        print(f"  [{i+1}/{len(hisse_listesi)}] {ticker}({borsa})", end=" ", flush=True)
+        if hisse_tara(ticker, borsa):
             print("✓ SİNYAL")
             bulunanlar.append(ticker)
         else:
