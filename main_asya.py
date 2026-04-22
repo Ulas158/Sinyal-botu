@@ -18,8 +18,8 @@ TV_PASSWORD    = os.environ.get("TV_PASSWORD", "")
 MAX_BARS       = 2
 RSI_MAX        = 40.0
 NW_ZONE        = 0.10
-BEKLEME_MIN    = 0.5
-BEKLEME_MAX    = 1.5
+BEKLEME_MIN    = 1.5
+BEKLEME_MAX    = 3.0
 JAPONYA_HACIM  = 750_000_000
 HONGKONG_HACIM = 5_000_000
 ALMANYA_HACIM  = 5_000_000
@@ -260,14 +260,25 @@ def tara(jp_listesi, hk_listesi, de_listesi):
             print("✗")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
+    print("  ⏸ Japonya tamamlandı, 15 saniye bekleniyor...")
+    time.sleep(15)
+
     for i, sembol in enumerate(hk_listesi):
         print(f"  [HK {i+1}/{len(hk_listesi)}] {sembol}", end=" ", flush=True)
-        if hisse_tara(sembol, "HKEX", "hongkong"):
+        sinyal = False
+        for borsa_kodu in ["HKEX", "HK"]:
+            if hisse_tara(sembol, borsa_kodu, "hongkong"):
+                sinyal = True
+                break
+        if sinyal:
             print("✓ SİNYAL")
             bulunanlar_hk.append(sembol)
         else:
             print("✗")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
+
+    print("  ⏸ Hong Kong tamamlandı, 15 saniye bekleniyor...")
+    time.sleep(15)
 
     for i, sembol in enumerate(de_listesi):
         print(f"  [DE {i+1}/{len(de_listesi)}] {sembol}", end=" ", flush=True)
