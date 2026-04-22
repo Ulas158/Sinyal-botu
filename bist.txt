@@ -1,6 +1,7 @@
-# BIST Hisse Senetleri Listesi
-# Her satıra bir sembol yaz (büyük harf, .IS olmadan)
-# Yeni hisse eklemek için buraya ekle ve GitHub'a yükle
+# Temizlenmiş BIST hisse listesi
+# Kaynak temeli: kullanıcının gönderdiği liste
+# Ayıklananlar: ANACM, BMEKS, DJIST, USDTR, ALTIN
+# Not: Bu dosya hisse olmayan/eskimiş bariz kodlar çıkarılarak düzenlenmiştir.
 
 AEFES
 AGESA
@@ -19,9 +20,7 @@ ALBRK
 ALFAS
 ALGYO
 ALKIM
-ALTIN
 ALTNY
-ANACM
 ANELE
 ANGEN
 ANHYT
@@ -50,7 +49,6 @@ BIOEN
 BIZIM
 BJKAS
 BLCYT
-BMEKS
 BNTAS
 BOBET
 BORSK
@@ -96,7 +94,6 @@ DGATE
 DGNMO
 DIRIT
 DITAS
-DJIST
 DMSAS
 DNISI
 DOAS
@@ -397,7 +394,6 @@ UMPAS
 ULKER
 UNLU
 USAK
-USDTR
 UTPYA
 UZERB
 VAKBN
