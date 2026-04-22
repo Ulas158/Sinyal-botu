@@ -1,8 +1,3 @@
-# Temizlenmiş BIST hisse listesi
-# Kaynak temeli: kullanıcının gönderdiği liste
-# Ayıklananlar: ANACM, BMEKS, DJIST, USDTR, ALTIN
-# Not: Bu dosya hisse olmayan/eskimiş bariz kodlar çıkarılarak düzenlenmiştir.
-
 AEFES
 AGESA
 AGHOL
