@@ -10,11 +10,14 @@ from tvDatafeed import TvDatafeed, Interval
 # ─────────────────────────────────────────────
 # AYARLAR
 # ─────────────────────────────────────────────
-TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID          = os.environ.get("CHAT_ID", "7116490869")
-GITHUB_USER      = os.environ.get("GITHUB_USER", "Ulas158")
-TV_USERNAME      = os.environ.get("TV_USERNAME", "")   # TradingView kullanıcı adı (opsiyonel)
-TV_PASSWORD      = os.environ.get("TV_PASSWORD", "")   # TradingView şifre (opsiyonel)
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID          = os.getenv("CHAT_ID", "7116490869")
+GITHUB_USER      = os.getenv("GITHUB_USER", "Ulas158")
+
+# TradingView bilgileri
+TV_USERNAME      = (os.getenv("TV_USERNAME") or "").strip()
+TV_PASSWORD      = (os.getenv("TV_PASSWORD") or "").strip()
+
 MAX_BARS         = 2
 RSI_MAX          = 40.0
 NW_ZONE          = 0.10
@@ -24,17 +27,61 @@ BIST_HACIM_MIN   = 20_000_000
 KRIPTO_HACIM_MIN = 10_000_000
 N_BARS           = 500   # Kaç mum çekilsin
 
-# tvDatafeed bağlantısı
-try:
+# ─────────────────────────────────────────────
+# TVDATAFEED BAĞLANTI
+# ─────────────────────────────────────────────
+def tv_baglan():
+    print("TV_USERNAME dolu mu:", bool(TV_USERNAME))
+    print("TV_PASSWORD dolu mu:", bool(TV_PASSWORD))
+
+    # Önce kullanıcı adı + şifre ile dene
     if TV_USERNAME and TV_PASSWORD:
-        tv = TvDatafeed(TV_USERNAME, TV_PASSWORD)
-        print("TradingView hesabıyla bağlandı ✓")
+        try:
+            print("TradingView login deneniyor...")
+            tv_conn = TvDatafeed(TV_USERNAME, TV_PASSWORD)
+
+            # Login gerçekten çalışıyor mu test et
+            test_df = tv_conn.get_hist(
+                symbol="BTCUSDT",
+                exchange="BINANCE",
+                interval=Interval.in_4_hour,
+                n_bars=10,
+            )
+
+            if test_df is not None and len(test_df) > 0:
+                print("TradingView login başarılı ✓")
+                return tv_conn
+            else:
+                print("TradingView login başarısız: veri alınamadı.")
+        except Exception as e:
+            print(f"TradingView login exception: {e}")
     else:
-        tv = TvDatafeed()
-        print("TradingView anonim bağlandı ✓")
-except Exception as e:
-    print(f"tvDatafeed bağlantı hatası: {e}")
-    tv = TvDatafeed()
+        print("TV_USERNAME veya TV_PASSWORD boş.")
+
+    # Olmazsa anonim bağlan
+    try:
+        print("Anonim bağlantı deneniyor...")
+        tv_conn = TvDatafeed()
+
+        test_df = tv_conn.get_hist(
+            symbol="BTCUSDT",
+            exchange="BINANCE",
+            interval=Interval.in_4_hour,
+            n_bars=10,
+        )
+
+        if test_df is not None and len(test_df) > 0:
+            print("TradingView anonim bağlandı ✓")
+        else:
+            print("Anonim bağlantıda da veri alınamadı.")
+
+        return tv_conn
+
+    except Exception as e:
+        print(f"Anonim bağlantı da başarısız: {e}")
+        return None
+
+tv = tv_baglan()
 
 # ─────────────────────────────────────────────
 # BIST — GitHub bist.txt
@@ -108,35 +155,51 @@ def telegram_gonder(mesaj):
         print(f"Telegram hatası: {e}")
 
 # ─────────────────────────────────────────────
-# TVDATAFEEd VERİ ÇEK
+# TVDATAFEED VERİ ÇEK
 # ─────────────────────────────────────────────
 def tv_veri_cek(sembol, borsa, deneme=0):
+    global tv
+
     try:
+        if tv is None:
+            print("tv nesnesi yok, yeniden bağlanılıyor...")
+            tv = tv_baglan()
+            if tv is None:
+                return None
+
         df = tv.get_hist(
             symbol=sembol,
             exchange=borsa,
             interval=Interval.in_4_hour,
             n_bars=N_BARS,
         )
+
         if df is None or len(df) < 50:
             return None
 
-        # Kolon isimlerini düzelt
         df = df.rename(columns={
-            "open": "Open", "high": "High",
-            "low": "Low", "close": "Close", "volume": "Volume"
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume"
         })
 
         df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
         if len(df) < 50:
             return None
 
         return df
 
     except Exception as e:
+        print(f"{sembol} veri çekme hatası: {e}")
+
         if deneme < 2:
             time.sleep(2)
+            tv = tv_baglan()
             return tv_veri_cek(sembol, borsa, deneme + 1)
+
         return None
 
 # ─────────────────────────────────────────────
@@ -227,7 +290,6 @@ def hisse_tara(sembol, borsa, tip):
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
-        # 1) FISHER
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2)
         if fisher_bars is None or fish1[-1 - fisher_bars] >= 0:
@@ -236,7 +298,6 @@ def hisse_tara(sembol, borsa, tip):
             if fish1[-1 - i] < fish2[-1 - i]:
                 return False
 
-        # 2) ALMA 4/9
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9)
@@ -246,7 +307,6 @@ def hisse_tara(sembol, borsa, tip):
             if alma4[-1 - i] < alma9[-1 - i]:
                 return False
 
-        # 3) RSI
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma)
@@ -256,7 +316,6 @@ def hisse_tara(sembol, borsa, tip):
             if rsi_vals[-1 - i] < rsi_sma[-1 - i]:
                 return False
 
-        # 4) NW ENVELOPE
         mid, lower, upper = nw_envelope(close, h=8.0, mult=3.0)
         zone = lower + (mid - lower) * NW_ZONE
         if close[-1] > zone or close[-1] < lower:
@@ -277,7 +336,6 @@ def tara(bist_listesi, kripto_listesi):
     bulunanlar_bist   = []
     bulunanlar_kripto = []
 
-    # BIST
     for i, sembol in enumerate(bist_listesi):
         print(f"  [BIST {i+1}/{len(bist_listesi)}] {sembol}", end=" ", flush=True)
         if hisse_tara(sembol, "BIST", "bist"):
@@ -287,7 +345,6 @@ def tara(bist_listesi, kripto_listesi):
             print("✗")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
-    # KRİPTO (Binance'de USDT parite)
     for i, sembol in enumerate(kripto_listesi):
         binance_sembol = sembol + "USDT"
         print(f"  [KRİPTO {i+1}/{len(kripto_listesi)}] {binance_sembol}", end=" ", flush=True)
@@ -298,7 +355,6 @@ def tara(bist_listesi, kripto_listesi):
             print("✗")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
-    # Telegram
     if bulunanlar_bist:
         mesaj = "🇹🇷 <b>BIST AL Sinyali!</b>\n\n"
         mesaj += f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
