@@ -34,13 +34,14 @@ def tv_baglan():
     print("TV_USERNAME dolu mu:", bool(TV_USERNAME))
     print("TV_PASSWORD dolu mu:", bool(TV_PASSWORD))
 
-    # Önce kullanıcı adı + şifre ile dene
+    # Önce giriş yapmayı dene
     if TV_USERNAME and TV_PASSWORD:
         try:
             print("TradingView login deneniyor...")
             tv_conn = TvDatafeed(TV_USERNAME, TV_PASSWORD)
 
-            # Login gerçekten çalışıyor mu test et
+            # Sadece veri geliyor mu test ediyoruz.
+            # Bu test, kesin hesaplı login garantisi vermez.
             test_df = tv_conn.get_hist(
                 symbol="BTCUSDT",
                 exchange="BINANCE",
@@ -49,12 +50,15 @@ def tv_baglan():
             )
 
             if test_df is not None and len(test_df) > 0:
-                print("TradingView login başarılı ✓")
-                return tv_conn
+                print("TradingView bağlantısı kuruldu, veri geliyor.")
             else:
-                print("TradingView login başarısız: veri alınamadı.")
+                print("TradingView bağlantısı kuruldu ama test verisi gelmedi.")
+
+            return tv_conn
+
         except Exception as e:
             print(f"TradingView login exception: {e}")
+
     else:
         print("TV_USERNAME veya TV_PASSWORD boş.")
 
@@ -71,9 +75,9 @@ def tv_baglan():
         )
 
         if test_df is not None and len(test_df) > 0:
-            print("TradingView anonim bağlandı ✓")
+            print("TradingView anonim bağlantı kuruldu, veri geliyor.")
         else:
-            print("Anonim bağlantıda da veri alınamadı.")
+            print("TradingView anonim bağlantı kuruldu ama test verisi gelmedi.")
 
         return tv_conn
 
@@ -342,7 +346,7 @@ def tara(bist_listesi, kripto_listesi):
             print("✓ SİNYAL")
             bulunanlar_bist.append(sembol)
         else:
-            print("✗")
+            print("X")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
     for i, sembol in enumerate(kripto_listesi):
@@ -352,7 +356,7 @@ def tara(bist_listesi, kripto_listesi):
             print("✓ SİNYAL")
             bulunanlar_kripto.append(sembol)
         else:
-            print("✗")
+            print("X")
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
     if bulunanlar_bist:
