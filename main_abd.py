@@ -30,10 +30,13 @@ ABD_HACIM_MIN  = 10_000_000
 N_BARS         = 500
 
 # DEBUG / TEST
-TEST_MODE      = True
-DEBUG_TICKER   = "AAPL"
+TEST_MODE         = True
+DEBUG_TICKER      = "AAPL"
+DEBUG_SKIP_VOLUME = True
 
-# tvDatafeed bağlantısı
+# ─────────────────────────────────────────────
+# TVDATAFEED BAĞLANTI
+# ─────────────────────────────────────────────
 try:
     if TV_USERNAME and TV_PASSWORD:
         tv = TvDatafeed(TV_USERNAME, TV_PASSWORD)
@@ -58,12 +61,15 @@ def abd_listesi_cek():
     try:
         url = f"https://raw.githubusercontent.com/{GITHUB_USER}/Sinyal-botu/main/abd.txt"
         r = requests.get(url, timeout=10)
+
         if r.status_code == 200:
             sonuc = []
+
             for line in r.text.splitlines():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+
                 if ":" in line:
                     parca = line.split(":")
                     sembol = parca[0].strip().upper()
@@ -71,10 +77,12 @@ def abd_listesi_cek():
                 else:
                     sembol = line.upper()
                     borsa  = "NASDAQ"
+
                 sonuc.append((sembol, borsa))
 
             gorulen = set()
             temiz = []
+
             for s, b in sonuc:
                 if s not in gorulen:
                     gorulen.add(s)
@@ -85,6 +93,7 @@ def abd_listesi_cek():
                 return temiz
 
         raise Exception(f"HTTP {r.status_code}")
+
     except Exception as e:
         print(f"abd.txt hatası: {e} — yedek liste")
         return [(s, "NASDAQ") for s in ABD_YEDEK]
@@ -98,14 +107,26 @@ def telegram_gonder(mesaj):
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
     try:
         requests.post(
             url,
-            json={"chat_id": CHAT_ID, "text": mesaj, "parse_mode": "HTML"},
+            json={
+                "chat_id": CHAT_ID,
+                "text": mesaj,
+                "parse_mode": "HTML"
+            },
             timeout=10
         )
     except Exception as e:
         print(f"Telegram hatası: {e}")
+
+# ─────────────────────────────────────────────
+# DEBUG YAZDIR
+# ─────────────────────────────────────────────
+def dprint(ticker, msg):
+    if TEST_MODE and ticker == DEBUG_TICKER:
+        print(msg)
 
 # ─────────────────────────────────────────────
 # TVDATAFEED VERİ ÇEK
@@ -118,18 +139,25 @@ def tv_veri_cek(sembol, borsa="NASDAQ", deneme=0):
             interval=Interval.in_4_hour,
             n_bars=N_BARS,
         )
+
         if df is not None and len(df) >= 50:
             df = df.rename(columns={
-                "open": "Open", "high": "High",
-                "low": "Low", "close": "Close", "volume": "Volume"
+                "open": "Open",
+                "high": "High",
+                "low": "Low",
+                "close": "Close",
+                "volume": "Volume"
             })
             df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
             if len(df) >= 50:
                 return df
+
     except Exception:
         if deneme < 1:
             time.sleep(2)
             return tv_veri_cek(sembol, borsa, deneme + 1)
+
     return None
 
 # ─────────────────────────────────────────────
@@ -147,8 +175,13 @@ def hacim_gecti(df):
 def alma(src, length, offset=0.85, sigma=6.0):
     m = offset * (length - 1)
     s = length / sigma
-    weights = np.array([np.exp(-((i - m) ** 2) / (2 * s * s)) for i in range(length)])
+
+    weights = np.array(
+        [np.exp(-((i - m) ** 2) / (2 * s * s)) for i in range(length)],
+        dtype=float
+    )
     weights /= weights.sum()
+
     result = np.full(len(src), np.nan)
 
     for i in range(length - 1, len(src)):
@@ -166,15 +199,18 @@ def fisher_transform(high, low, length=9):
 
     for i in range(1, len(hl2)):
         denom = high_[i] - low_[i]
-        raw   = (
-            0.66 * ((hl2[i] - low_[i]) / denom - 0.5) + 0.67 * val[i - 1]
-            if denom != 0 and not np.isnan(denom) else 0.67 * val[i - 1]
-        )
-        val[i]   = max(min(raw, 0.999), -0.999)
+
+        if denom != 0 and not np.isnan(denom):
+            raw = 0.66 * ((hl2[i] - low_[i]) / denom - 0.5) + 0.67 * val[i - 1]
+        else:
+            raw = 0.67 * val[i - 1]
+
+        val[i] = max(min(raw, 0.999), -0.999)
         fish1[i] = 0.5 * np.log((1 + val[i]) / (1 - val[i])) + 0.5 * fish1[i - 1]
 
-    fish2    = np.roll(fish1, 1)
+    fish2 = np.roll(fish1, 1)
     fish2[0] = np.nan
+
     return fish1, fish2
 
 def rsi_hesapla(close, length=14):
@@ -197,8 +233,11 @@ def nw_serileri(close, h=8.0, mult=3.0):
 
     max_lookback = min(500, n)
 
-    weights = np.array([np.exp(-(i ** 2) / (h * h * 2)) for i in range(max_lookback)], dtype=float)
-    weights = weights / weights.sum()
+    weights = np.array(
+        [np.exp(-(i ** 2) / (h * h * 2)) for i in range(max_lookback)],
+        dtype=float
+    )
+    weights /= weights.sum()
 
     for idx in range(n):
         usable = min(idx + 1, max_lookback)
@@ -221,15 +260,20 @@ def nw_serileri(close, h=8.0, mult=3.0):
 def crossover_bars_ago(a, b, max_bars=MAX_BARS):
     for i in range(max_bars + 1):
         idx = -1 - i
+
         if len(a) < abs(idx) + 1:
             return None
+
         try:
             if np.isnan(a[idx]) or np.isnan(b[idx]) or np.isnan(a[idx - 1]) or np.isnan(b[idx - 1]):
                 continue
+
             if a[idx] > b[idx] and a[idx - 1] <= b[idx - 1]:
                 return i
+
         except Exception:
             return None
+
     return None
 
 def nw_touch_and_reverse(close, zone, lower, max_bars=MAX_BARS):
@@ -256,6 +300,7 @@ def nw_touch_and_reverse(close, zone, lower, max_bars=MAX_BARS):
             idx = n - 1 - j
             if idx < 0:
                 continue
+
             if np.isnan(zone[idx]) or np.isnan(lower[idx]):
                 continue
 
@@ -265,14 +310,7 @@ def nw_touch_and_reverse(close, zone, lower, max_bars=MAX_BARS):
     return True, nw_bar
 
 # ─────────────────────────────────────────────
-# DEBUG YAZDIR
-# ─────────────────────────────────────────────
-def dprint(ticker, msg):
-    if TEST_MODE and ticker == DEBUG_TICKER:
-        print(msg)
-
-# ─────────────────────────────────────────────
-# SİNYAL DETAYI HESAPLA
+# SİNYAL DETAYI
 # ─────────────────────────────────────────────
 def sinyal_detayi_uret(df):
     close = float(df["Close"].iloc[-1])
@@ -280,7 +318,6 @@ def sinyal_detayi_uret(df):
 
     stop_fiyat = close * (1 - STOP_PCT / 100.0)
     take_fiyat = close * (1 + TAKE_PCT / 100.0)
-
     tahmini_son_cikis = sinyal_zamani + pd.Timedelta(hours=4 * EXIT_BARS)
 
     return {
@@ -301,11 +338,11 @@ def hisse_tara(ticker, borsa="NASDAQ"):
             dprint(ticker, "VERI YOK")
             return None
 
-       if not hacim_gecti(df):
-    dprint(ticker, "HACIM GECMEDI")
-    if not DEBUG_SKIP_VOLUME:
-        return None
-    dprint(ticker, "DEBUG_SKIP_VOLUME aktif, devam ediyorum")
+        if not hacim_gecti(df):
+            dprint(ticker, "HACIM GECMEDI")
+            if not DEBUG_SKIP_VOLUME:
+                return None
+            dprint(ticker, "DEBUG_SKIP_VOLUME aktif, devam ediyorum")
 
         close = df["Close"].values.astype(float)
         high  = df["High"].values.astype(float)
@@ -316,7 +353,7 @@ def hisse_tara(ticker, borsa="NASDAQ"):
 
         # 1) FISHER
         fish1, fish2 = fisher_transform(high, low, 9)
-        fisher_bars  = crossover_bars_ago(fish1, fish2, MAX_BARS)
+        fisher_bars = crossover_bars_ago(fish1, fish2, MAX_BARS)
         dprint(ticker, f"Fisher bars: {fisher_bars}")
 
         if fisher_bars is None:
@@ -338,8 +375,8 @@ def hisse_tara(ticker, borsa="NASDAQ"):
         dprint(ticker, "FISHER: GECTI")
 
         # 2) ALMA
-        alma4     = alma(close, 4)
-        alma9     = alma(close, 9)
+        alma4 = alma(close, 4)
+        alma9 = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9, MAX_BARS)
         dprint(ticker, f"ALMA bars: {alma_bars}")
 
@@ -359,7 +396,7 @@ def hisse_tara(ticker, borsa="NASDAQ"):
 
         # 3) RSI
         rsi_vals = rsi_hesapla(close, 14)
-        rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
+        rsi_sma = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma, MAX_BARS)
         dprint(ticker, f"RSI bars: {rsi_bars}")
 
@@ -420,12 +457,15 @@ def tara(hisse_listesi):
 
     for i, (ticker, borsa) in enumerate(hisse_listesi):
         print(f"  [{i+1}/{len(hisse_listesi)}] {ticker}({borsa})", end=" ", flush=True)
+
         sonuc = hisse_tara(ticker, borsa)
+
         if sonuc:
             print("✓ SİNYAL")
             bulunanlar.append(sonuc)
         else:
             print("✗")
+
         time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
 
     if bulunanlar:
@@ -455,8 +495,8 @@ def tara(hisse_listesi):
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     if TEST_MODE:
-        abd_listesi = [("AAPL", "NASDAQ")]
         print("TEST MODE ACIK — sadece AAPL taranacak")
+        abd_listesi = [("AAPL", "NASDAQ")]
         tara(abd_listesi)
     else:
         abd_listesi = abd_listesi_cek()
