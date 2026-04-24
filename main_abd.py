@@ -29,6 +29,10 @@ BEKLEME_MAX    = 3.0
 ABD_HACIM_MIN  = 10_000_000
 N_BARS         = 500
 
+# DEBUG / TEST
+TEST_MODE      = True
+DEBUG_TICKER   = "AAPL"
+
 # tvDatafeed bağlantısı
 try:
     if TV_USERNAME and TV_PASSWORD:
@@ -245,7 +249,7 @@ def nw_touch_and_reverse(close, zone, lower, max_bars=MAX_BARS):
             break
 
     if nw_bar is None:
-        return False
+        return False, None
 
     if nw_bar > 0:
         for j in range(nw_bar - 1, -1, -1):
@@ -256,9 +260,16 @@ def nw_touch_and_reverse(close, zone, lower, max_bars=MAX_BARS):
                 continue
 
             if close[idx] > zone[idx] or close[idx] < lower[idx]:
-                return False
+                return False, nw_bar
 
-    return True
+    return True, nw_bar
+
+# ─────────────────────────────────────────────
+# DEBUG YAZDIR
+# ─────────────────────────────────────────────
+def dprint(ticker, msg):
+    if TEST_MODE and ticker == DEBUG_TICKER:
+        print(msg)
 
 # ─────────────────────────────────────────────
 # SİNYAL DETAYI HESAPLA
@@ -270,7 +281,6 @@ def sinyal_detayi_uret(df):
     stop_fiyat = close * (1 - STOP_PCT / 100.0)
     take_fiyat = close * (1 + TAKE_PCT / 100.0)
 
-    # Hisse piyasasında tam kesin tarih değil; yaklaşık takvim hesabı
     tahmini_son_cikis = sinyal_zamani + pd.Timedelta(hours=4 * EXIT_BARS)
 
     return {
@@ -288,57 +298,107 @@ def hisse_tara(ticker, borsa="NASDAQ"):
     try:
         df = tv_veri_cek(ticker, borsa)
         if df is None:
+            dprint(ticker, "VERI YOK")
             return None
 
         if not hacim_gecti(df):
+            dprint(ticker, "HACIM GECMEDI")
             return None
 
         close = df["Close"].values.astype(float)
         high  = df["High"].values.astype(float)
         low   = df["Low"].values.astype(float)
 
+        dprint(ticker, f"Son bar zamanı: {df.index[-1]}")
+        dprint(ticker, f"Son close: {close[-1]:.4f}")
+
         # 1) FISHER
         fish1, fish2 = fisher_transform(high, low, 9)
         fisher_bars  = crossover_bars_ago(fish1, fish2, MAX_BARS)
+        dprint(ticker, f"Fisher bars: {fisher_bars}")
+
         if fisher_bars is None:
+            dprint(ticker, "FISHER: crossover yok")
             return None
 
+        dprint(ticker, f"Fisher signal bar fish1: {fish1[-1 - fisher_bars]:.4f}")
+        dprint(ticker, f"Fisher signal bar fish2: {fish2[-1 - fisher_bars]:.4f}")
+
         if fish1[-1 - fisher_bars] >= 0:
+            dprint(ticker, "FISHER: 0 alti sarti gecmedi")
             return None
 
         for i in range(fisher_bars - 1, -1, -1):
             if fish1[-1 - i] < fish2[-1 - i]:
+                dprint(ticker, f"FISHER: reverse iptal, i={i}")
                 return None
+
+        dprint(ticker, "FISHER: GECTI")
 
         # 2) ALMA
         alma4     = alma(close, 4)
         alma9     = alma(close, 9)
         alma_bars = crossover_bars_ago(alma4, alma9, MAX_BARS)
+        dprint(ticker, f"ALMA bars: {alma_bars}")
+
         if alma_bars is None:
+            dprint(ticker, "ALMA: crossover yok")
             return None
+
+        dprint(ticker, f"ALMA signal bar alma4: {alma4[-1 - alma_bars]:.4f}")
+        dprint(ticker, f"ALMA signal bar alma9: {alma9[-1 - alma_bars]:.4f}")
 
         for i in range(alma_bars - 1, -1, -1):
             if alma4[-1 - i] < alma9[-1 - i]:
+                dprint(ticker, f"ALMA: reverse iptal, i={i}")
                 return None
+
+        dprint(ticker, "ALMA: GECTI")
 
         # 3) RSI
         rsi_vals = rsi_hesapla(close, 14)
         rsi_sma  = pd.Series(rsi_vals).rolling(14).mean().values
         rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma, MAX_BARS)
+        dprint(ticker, f"RSI bars: {rsi_bars}")
+
         if rsi_bars is None:
+            dprint(ticker, "RSI: crossover yok")
             return None
 
+        dprint(ticker, f"RSI signal bar rsi: {rsi_vals[-1 - rsi_bars]:.4f}")
+        dprint(ticker, f"RSI signal bar sma: {rsi_sma[-1 - rsi_bars]:.4f}")
+
         if rsi_vals[-1 - rsi_bars] > RSI_MAX:
+            dprint(ticker, "RSI: max sarti gecmedi")
             return None
 
         for i in range(rsi_bars - 1, -1, -1):
             if rsi_vals[-1 - i] < rsi_sma[-1 - i]:
+                dprint(ticker, f"RSI: reverse iptal, i={i}")
                 return None
+
+        dprint(ticker, "RSI: GECTI")
 
         # 4) NW ENVELOPE
         _, lower, _, zone = nw_serileri(close, h=8.0, mult=3.0)
-        if not nw_touch_and_reverse(close, zone, lower, MAX_BARS):
+
+        for i in range(MAX_BARS + 1):
+            idx = len(close) - 1 - i
+            if idx >= 0:
+                dprint(
+                    ticker,
+                    f"NW bar -{i}: close={close[idx]:.4f}, lower={lower[idx]:.4f}, zone={zone[idx]:.4f}"
+                )
+
+        nw_ok, nw_bar = nw_touch_and_reverse(close, zone, lower, MAX_BARS)
+        dprint(ticker, f"NW touch bar: {nw_bar}")
+        dprint(ticker, f"NW OK: {nw_ok}")
+
+        if not nw_ok:
+            dprint(ticker, "NW: iptal")
             return None
+
+        dprint(ticker, "NW: GECTI")
 
         detay = sinyal_detayi_uret(df)
         detay["ticker"] = ticker
@@ -392,27 +452,32 @@ def tara(hisse_listesi):
 # BAŞLAT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    abd_listesi = abd_listesi_cek()
-
-    telegram_gonder(
-        f"🤖 <b>Bot 2 — ABD Borsası Başlatıldı!</b>\n\n"
-        f"🔢 Toplam hisse: {len(abd_listesi)}\n"
-        f"📡 Veri: TradingView (tvDatafeed)\n\n"
-        f"<b>Filtreler:</b>\n"
-        f"• Hacim ≥ 10M USD\n"
-        f"• Fisher crossover (2 mum, 0 altı)\n"
-        f"• ALMA 4/9 crossover (2 mum)\n"
-        f"• RSI crossover + RSI ≤ 70\n"
-        f"• NW Envelope bölge ≤ 1.0\n"
-        f"• NW bozulursa sinyal iptal\n\n"
-        f"<b>Notlar:</b>\n"
-        f"• Stop-Loss: %15\n"
-        f"• Take-Profit: %30\n"
-        f"• En geç çıkış: 200 adet 4 saatlik mum"
-    )
-
-    while True:
-        abd_listesi = abd_listesi_cek()
+    if TEST_MODE:
+        abd_listesi = [("AAPL", "NASDAQ")]
+        print("TEST MODE ACIK — sadece AAPL taranacak")
         tara(abd_listesi)
-        print("\nYeni tur başlıyor...\n")
-        time.sleep(60)
+    else:
+        abd_listesi = abd_listesi_cek()
+
+        telegram_gonder(
+            f"🤖 <b>Bot 2 — ABD Borsası Başlatıldı!</b>\n\n"
+            f"🔢 Toplam hisse: {len(abd_listesi)}\n"
+            f"📡 Veri: TradingView (tvDatafeed)\n\n"
+            f"<b>Filtreler:</b>\n"
+            f"• Hacim ≥ 10M USD\n"
+            f"• Fisher crossover (2 mum, 0 altı)\n"
+            f"• ALMA 4/9 crossover (2 mum)\n"
+            f"• RSI crossover + RSI ≤ 70\n"
+            f"• NW Envelope bölge ≤ 1.0\n"
+            f"• NW bozulursa sinyal iptal\n\n"
+            f"<b>Notlar:</b>\n"
+            f"• Stop-Loss: %15\n"
+            f"• Take-Profit: %30\n"
+            f"• En geç çıkış: 200 adet 4 saatlik mum"
+        )
+
+        while True:
+            abd_listesi = abd_listesi_cek()
+            tara(abd_listesi)
+            print("\nYeni tur başlıyor...\n")
+            time.sleep(60)
