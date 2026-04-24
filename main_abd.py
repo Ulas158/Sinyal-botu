@@ -302,8 +302,8 @@ def hisse_tara(ticker, borsa="NASDAQ"):
             return None
 
         if not hacim_gecti(df):
-            dprint(ticker, "HACIM GECMEDI")
-            return None
+    dprint(ticker, "HACIM GECMEDI - DEBUG ICIN ATLADIM")
+    # return None
 
         close = df["Close"].values.astype(float)
         high  = df["High"].values.astype(float)
