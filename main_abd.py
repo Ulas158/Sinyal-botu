@@ -137,13 +137,18 @@ def hacim_gecti(df):
 # İNDİKATÖRLER
 # ─────────────────────────────────────────────
 def alma(src, length, offset=0.85, sigma=6.0):
+    # TradingView ta.alma() ile birebir aynı formül
     m = offset * (length - 1)
     s = length / sigma
-    weights = np.array([np.exp(-((i - m) ** 2) / (2 * s * s)) for i in range(length)], dtype=float)
-    weights /= weights.sum()
     result = np.full(len(src), np.nan)
-    for i in range(length - 1, len(src)):
-        result[i] = np.dot(src[i - length + 1:i + 1], weights[::-1])
+    for idx in range(length - 1, len(src)):
+        norm = 0.0
+        total = 0.0
+        for i in range(length):
+            w = np.exp(-1 * ((i - m) ** 2) / (2 * s * s))
+            norm += w
+            total += src[idx - length + 1 + i] * w
+        result[idx] = total / norm
     return result
 
 def fisher_transform(high, low, length=9):
