@@ -27,12 +27,17 @@ TAKE_PCT       = 30.0
 BEKLEME_MIN    = 1.5
 BEKLEME_MAX    = 3.0
 ABD_HACIM_MIN  = 10_000_000
-N_BARS         = 500
+N_BARS         = 700
 
 # DEBUG / TEST
 TEST_MODE         = True
 DEBUG_TICKER      = "AAPL"
 DEBUG_SKIP_VOLUME = True
+
+# Geçmiş bar testi
+# TradingView'deki entry zamanını buraya yaz
+# Örnek: "2026-02-17 20:00:00"
+TEST_TARGET_TIME  = "2026-02-17 20:00:00"
 
 # ─────────────────────────────────────────────
 # TVDATAFEED BAĞLANTI
@@ -122,14 +127,14 @@ def telegram_gonder(mesaj):
         print(f"Telegram hatası: {e}")
 
 # ─────────────────────────────────────────────
-# DEBUG YAZDIR
+# DEBUG
 # ─────────────────────────────────────────────
 def dprint(ticker, msg):
     if TEST_MODE and ticker == DEBUG_TICKER:
         print(msg)
 
 # ─────────────────────────────────────────────
-# TVDATAFEED VERİ ÇEK
+# VERİ
 # ─────────────────────────────────────────────
 def tv_veri_cek(sembol, borsa="NASDAQ", deneme=0):
     try:
@@ -160,8 +165,26 @@ def tv_veri_cek(sembol, borsa="NASDAQ", deneme=0):
 
     return None
 
+def test_barina_kes(df, target_time_str):
+    """
+    Geçmişteki belirli bir barı son bar kabul etmek için df'yi o bar dahil olacak şekilde keser.
+    """
+    ts = pd.Timestamp(target_time_str)
+    df2 = df[df.index <= ts].copy()
+
+    if len(df2) == 0:
+        return None
+
+    if df2.index[-1] != ts:
+        # Tam eşleşme yoksa en yakın önceki barı kullan
+        print(f"UYARI: tam bar bulunamadı, kullanılan son bar: {df2.index[-1]}")
+    else:
+        print(f"TEST BAR BULUNDU: {df2.index[-1]}")
+
+    return df2
+
 # ─────────────────────────────────────────────
-# HACİM FİLTRESİ
+# HACİM
 # ─────────────────────────────────────────────
 def hacim_gecti(df):
     try:
@@ -248,8 +271,7 @@ def nw_serileri(close, h=8.0, mult=3.0):
         out = np.dot(window[::-1], w)
         nw_out[idx] = out
 
-    abs_diff = np.abs(close - nw_out)
-    mae = pd.Series(abs_diff).rolling(499, min_periods=499).mean().values * mult
+    mae = pd.Series(np.abs(close - nw_out)).rolling(499, min_periods=499).mean().values * mult
 
     nw_lower = nw_out - mae
     nw_upper = nw_out + mae
@@ -338,6 +360,12 @@ def hisse_tara(ticker, borsa="NASDAQ"):
             dprint(ticker, "VERI YOK")
             return None
 
+        if TEST_MODE:
+            df = test_barina_kes(df, TEST_TARGET_TIME)
+            if df is None or len(df) < 50:
+                dprint(ticker, "TEST BARINA KESILINCE VERI YETERSIZ")
+                return None
+
         if not hacim_gecti(df):
             dprint(ticker, "HACIM GECMEDI")
             if not DEBUG_SKIP_VOLUME:
@@ -385,141 +413,4 @@ def hisse_tara(ticker, borsa="NASDAQ"):
             return None
 
         dprint(ticker, f"ALMA signal bar alma4: {alma4[-1 - alma_bars]:.4f}")
-        dprint(ticker, f"ALMA signal bar alma9: {alma9[-1 - alma_bars]:.4f}")
-
-        for i in range(alma_bars - 1, -1, -1):
-            if alma4[-1 - i] < alma9[-1 - i]:
-                dprint(ticker, f"ALMA: reverse iptal, i={i}")
-                return None
-
-        dprint(ticker, "ALMA: GECTI")
-
-        # 3) RSI
-        rsi_vals = rsi_hesapla(close, 14)
-        rsi_sma = pd.Series(rsi_vals).rolling(14).mean().values
-        rsi_bars = crossover_bars_ago(rsi_vals, rsi_sma, MAX_BARS)
-        dprint(ticker, f"RSI bars: {rsi_bars}")
-
-        if rsi_bars is None:
-            dprint(ticker, "RSI: crossover yok")
-            return None
-
-        dprint(ticker, f"RSI signal bar rsi: {rsi_vals[-1 - rsi_bars]:.4f}")
-        dprint(ticker, f"RSI signal bar sma: {rsi_sma[-1 - rsi_bars]:.4f}")
-
-        if rsi_vals[-1 - rsi_bars] > RSI_MAX:
-            dprint(ticker, "RSI: max sarti gecmedi")
-            return None
-
-        for i in range(rsi_bars - 1, -1, -1):
-            if rsi_vals[-1 - i] < rsi_sma[-1 - i]:
-                dprint(ticker, f"RSI: reverse iptal, i={i}")
-                return None
-
-        dprint(ticker, "RSI: GECTI")
-
-        # 4) NW ENVELOPE
-        _, lower, _, zone = nw_serileri(close, h=8.0, mult=3.0)
-
-        for i in range(MAX_BARS + 1):
-            idx = len(close) - 1 - i
-            if idx >= 0:
-                dprint(
-                    ticker,
-                    f"NW bar -{i}: close={close[idx]:.4f}, lower={lower[idx]:.4f}, zone={zone[idx]:.4f}"
-                )
-
-        nw_ok, nw_bar = nw_touch_and_reverse(close, zone, lower, MAX_BARS)
-        dprint(ticker, f"NW touch bar: {nw_bar}")
-        dprint(ticker, f"NW OK: {nw_ok}")
-
-        if not nw_ok:
-            dprint(ticker, "NW: iptal")
-            return None
-
-        dprint(ticker, "NW: GECTI")
-
-        detay = sinyal_detayi_uret(df)
-        detay["ticker"] = ticker
-        detay["borsa"] = borsa
-        return detay
-
-    except Exception as e:
-        print(f"{ticker} hata: {e}")
-        return None
-
-# ─────────────────────────────────────────────
-# ANA TARAMA
-# ─────────────────────────────────────────────
-def tara(hisse_listesi):
-    print(f"\n[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}] Tarama başladı — {len(hisse_listesi)} hisse")
-    bulunanlar = []
-
-    for i, (ticker, borsa) in enumerate(hisse_listesi):
-        print(f"  [{i+1}/{len(hisse_listesi)}] {ticker}({borsa})", end=" ", flush=True)
-
-        sonuc = hisse_tara(ticker, borsa)
-
-        if sonuc:
-            print("✓ SİNYAL")
-            bulunanlar.append(sonuc)
-        else:
-            print("✗")
-
-        time.sleep(random.uniform(BEKLEME_MIN, BEKLEME_MAX))
-
-    if bulunanlar:
-        mesaj = "🇺🇸 <b>ABD AL Sinyali!</b>\n\n"
-        mesaj += f"⏰ Tarama: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-        mesaj += f"📡 Veri: TradingView\n"
-        mesaj += f"⚙️ Set: 2 / 70 / 1.0 / 200 / 15 / 30\n\n"
-
-        for s in bulunanlar:
-            mesaj += (
-                f"<b>{s['ticker']}</b> ({s['borsa']})\n"
-                f"• Alış: <b>{s['alis']:.2f}</b>\n"
-                f"• Take-Profit (%30): <b>{s['take']:.2f}</b>\n"
-                f"• Stop-Loss (%15): <b>{s['stop']:.2f}</b>\n"
-                f"• Sinyal zamanı: <b>{s['sinyal_zamani'].strftime('%d.%m.%Y %H:%M')}</b>\n"
-                f"• En geç çıkış: <b>{EXIT_BARS} adet 4 saatlik mum sonra</b>\n"
-                f"• Tahmini son tarih: <b>{s['tahmini_son_cikis'].strftime('%d.%m.%Y %H:%M')}</b>\n\n"
-            )
-
-        mesaj += "ℹ️ Not: 'Tahmini son tarih' 4 saat × 200 üzerinden yaklaşık hesaplanır."
-        telegram_gonder(mesaj)
-    else:
-        print("\nSinyal bulunamadı.")
-
-# ─────────────────────────────────────────────
-# BAŞLAT
-# ─────────────────────────────────────────────
-if __name__ == "__main__":
-    if TEST_MODE:
-        print("TEST MODE ACIK — sadece AAPL taranacak")
-        abd_listesi = [("AAPL", "NASDAQ")]
-        tara(abd_listesi)
-    else:
-        abd_listesi = abd_listesi_cek()
-
-        telegram_gonder(
-            f"🤖 <b>Bot 2 — ABD Borsası Başlatıldı!</b>\n\n"
-            f"🔢 Toplam hisse: {len(abd_listesi)}\n"
-            f"📡 Veri: TradingView (tvDatafeed)\n\n"
-            f"<b>Filtreler:</b>\n"
-            f"• Hacim ≥ 10M USD\n"
-            f"• Fisher crossover (2 mum, 0 altı)\n"
-            f"• ALMA 4/9 crossover (2 mum)\n"
-            f"• RSI crossover + RSI ≤ 70\n"
-            f"• NW Envelope bölge ≤ 1.0\n"
-            f"• NW bozulursa sinyal iptal\n\n"
-            f"<b>Notlar:</b>\n"
-            f"• Stop-Loss: %15\n"
-            f"• Take-Profit: %30\n"
-            f"• En geç çıkış: 200 adet 4 saatlik mum"
-        )
-
-        while True:
-            abd_listesi = abd_listesi_cek()
-            tara(abd_listesi)
-            print("\nYeni tur başlıyor...\n")
-            time.sleep(60)
+        dprint(ticker, f"ALMA signal bar alma9: {alma9[-1 - alma
